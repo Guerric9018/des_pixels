@@ -3,6 +3,7 @@
 struct Vertex
 {
 	int id;
+	int clust;
 };
 
 struct Clusters
