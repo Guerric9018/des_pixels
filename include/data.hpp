@@ -1,16 +1,18 @@
 #include <vector>
+#include <map>
 
 using byte = unsigned char;
+using id_t = unsigned;
 
 struct Vertex
 {
-	int id;
+	id_t id;
 };
 
 struct Clusters
 {
 	using cluster = std::vector<Vertex>;
-	std::vector<cluster> data;
+	std::map<id_t, cluster> cluster2vertex;
 };
 
 struct vec2

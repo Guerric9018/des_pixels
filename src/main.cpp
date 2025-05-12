@@ -42,8 +42,6 @@ bool same_color(byte *data, size_t a, size_t b)
 
 Clusters find_clusters(byte *data, size_t width, size_t height)
 {
-	Clusters c;
-
 	auto index = [=] (size_t x, size_t y) { return x + y * width; };
 	size_t offsets[] = {
 		+1,
@@ -67,15 +65,13 @@ Clusters find_clusters(byte *data, size_t width, size_t height)
 		}
 	}
 
-	std::map<unsigned, std::vector<size_t>> mapping;
+	Clusters c;
 	for (size_t y = 0; y < height; ++y) {
 		for (size_t x = 0; x < width; ++x) {
-			auto i = index(x, y);
-			mapping[uf.find(i)].push_back(i);
+			id_t i = index(x, y);
+			c.cluster2vertex[uf.find(i)].push_back(Vertex{ i });
 		}
 	}
-
-	c.data = std::vector<Clusters::cluster>(mapping.size());
 
 	return c;
 }
@@ -93,7 +89,7 @@ int main(int argc, char **argv)
 	assert(width > 0 && height > 0);
 
 	auto clusters = find_clusters(pixels, width, height);
-	std::cout << "found " << clusters.data.size() << " clusters\n";
+	std::cout << "found " << clusters.cluster2vertex.size() << " clusters\n";
 
 	stbi_image_free(pixels);
 }
