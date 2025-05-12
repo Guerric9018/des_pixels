@@ -40,6 +40,25 @@ bool same_color(byte *data, size_t a, size_t b)
 	return d0*d0 + d1*d1 + d2*d2 <= 8*8;
 }
 
+Color calculateRepresentativeColor(byte *data, const Clusters::cluster& cluster)
+{
+	if (cluster.empty()) return Color();
+
+	long totalR = 0, totalG = 0, totalB = 0;
+	for (const auto& vertex : cluster) {
+		auto color = vertex.color(data);
+		totalR += color.r;
+		totalG += color.g;
+		totalB += color.b;
+	}
+
+	return Color(
+		static_cast<unsigned char>(totalR / cluster.size()),
+		static_cast<unsigned char>(totalG / cluster.size()),
+		static_cast<unsigned char>(totalB / cluster.size())
+	);
+}
+
 Clusters find_clusters(byte *data, size_t width, size_t height)
 {
 	auto index = [=] (size_t x, size_t y) { return x + y * width; };
