@@ -1,55 +1,22 @@
+#include <algorithm>
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 #include <iostream>
 #include <cassert>
 #include <vector>
-#include <set>
 #include <map>
 #include "data.hpp"
 
-struct union_find
-{
-	std::vector<unsigned> data;
-
-	union_find(size_t sz) : data(sz)
-	{
-		for (size_t i = 0; i < sz; ++i) {
-			data[i] = i;
-		}
-	}
-
-	unsigned find(unsigned id)
-	{
-		unsigned at = id;
-		while (at != data[at]) {
-			at = data[at];
-		}
-		return data[id] = at;
-	}
-
-	unsigned unite(unsigned a, unsigned b)
-	{
-		return data[find(b)] = find(a);
-	}
-};
-
-bool same_color(byte *data, size_t a, size_t b)
-{
-	auto d0 = data[a * 3 + 0] - data[b * 3 + 0];
-	auto d1 = data[a * 3 + 1] - data[b * 3 + 1];
-	auto d2 = data[a * 3 + 2] - data[b * 3 + 2];
-	return d0*d0 + d1*d1 + d2*d2 <= 8*8;
-}
-
-Color calculateRepresentativeColor(const Clusters::cluster& cluster)
+Color calculateRepresentativeColor(byte *data, const Clusters::cluster& cluster)
 {
 	if (cluster.empty()) return Color();
 
 	long totalR = 0, totalG = 0, totalB = 0;
 	for (const auto& vertex : cluster) {
-		totalR += vertex.color.r;
-		totalG += vertex.color.g;
-		totalB += vertex.color.b;
+		auto color = vertex.color(data);
+		totalR += color.r;
+		totalG += color.g;
+		totalB += color.b;
 	}
 
 	return Color(
@@ -167,8 +134,8 @@ int main(int argc, char **argv)
 	assert(channels == 3);
 	assert(width > 0 && height > 0);
 
-	auto clusters = find_clusters(pixels, width, height);
-	std::cout << "found " << clusters.data.size() << " clusters\n";
+	Clusters clusters(width, height, pixels);
+	std::cout << "found " << clusters.cluster2vertex.size() << " clusters\n";
 
 	stbi_image_free(pixels);
 }
