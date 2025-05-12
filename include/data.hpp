@@ -30,17 +30,24 @@ struct Clusters
 	std::map<id_t, cluster> cluster2vertex;
 };
 
+template <typename D>
 struct vec2
 {
-	float x;
-	float y;
+	D x;
+	D y;
 
-	float &operator[](size_t i) { return (&x)[i]; }
-	const float &operator[](size_t i) const { return (&x)[i]; }
+	D &operator[](size_t i) { return (&x)[i]; }
+	const D &operator[](size_t i) const { return (&x)[i]; }
 };
+
+template <typename D>
+inline vec2<D> operator+(vec2<D> lhs, vec2<D> rhs)
+{
+	return vec2{ lhs.x + rhs.x, lhs.y + rhs.y };
+}
 
 struct Boundary
 {
-	std::vector<vec2> corner;
-	std::vector<vec2> edge;
+	std::vector<vec2<float>> corner;
+	std::vector<vec2<float>> edge;
 };
