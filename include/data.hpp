@@ -30,8 +30,14 @@ struct vec2
 	const float &operator[](size_t i) const { return (&x)[i]; }
 };
 
-struct Boundary
+struct Edge
 {
-	std::vector<vec2> corner;
-	std::vector<vec2> edge;
+	int shape;
+	vec2 nodes[4];
+};
+
+struct Shape
+{
+	int id;
+	std::vector<Edge> edges;
 };

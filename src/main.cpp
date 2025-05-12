@@ -3,6 +3,7 @@
 #include <iostream>
 #include <cassert>
 #include <vector>
+#include <set>
 #include <map>
 #include "data.hpp"
 
@@ -96,6 +97,62 @@ Clusters find_clusters(byte *data, size_t width, size_t height)
 	c.data = std::vector<Clusters::cluster>(mapping.size());
 
 	return c;
+}
+
+std::vector<Shape> buildShapes(Clusters& clusters, int width, int height)
+{
+	auto index = [=] (size_t x, size_t y) { return x + y * width; };
+
+	std::vector<Shape> shapes(clusters.data.size());
+
+        size_t offsets[] = {
+                +1,
+                -1 + width,
+                +width,
+                +1 + width,
+        };
+
+	float float_x_offsets[] = {
+		+0.5f,
+		-0.5f,
+		+0.0f,
+		+0.5f,
+	}
+
+	float float_y_offsets[] = {
+		+0.0f,
+		+0.5f,
+		+0.5f,
+		+0.5f,
+	}
+	
+	for (size_t y = 0; y < height; ++y) {
+                for (size_t x = 0; x < width; ++x) {
+                        auto vertex_a = index(x, y);
+			for (size_t direction = 0; direction < 4; ++direction) {
+				auto vertex_b = vertex_a + offsets[direction];
+					
+				int cluster_a = clusters.find(vertex_a);
+				int cluster_b = clusters.find(vertex_b);
+
+				if (cluster_a != cluster_b) {
+					vec2 nodes[4];
+					nodes[0] = {(float)x + float_x_offsets[direction],
+					      	    (float)y + float_y_offsets[direction]}	
+
+					Edge edge_a = {cluster_a, nodes};  
+					Edge edge_b = {cluster_b, nodes};
+					
+					shapes[cluster_a].id = cluster_a;
+					shapes[cluster_a].edges.push_back(edge_a);
+					shapes[cluster_b].id = cluster_b;
+					shapes[cluster_b].edges.push_back(edge_b);
+				}
+			}
+		}
+	}
+
+	return shapes;
 }
 
 int main(int argc, char **argv)
