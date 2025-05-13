@@ -93,6 +93,7 @@ inline vec2<D> operator/(vec2<D> lhs, D div)
 
 struct Clusters
 {
+private:
 	size_t width;
 	size_t height;
 
@@ -100,8 +101,11 @@ struct Clusters
 	std::map<id_t, cluster> cluster2vertex;
 	union_find vertex2cluster;
 
+public:
 	Clusters(size_t width, size_t height, byte *data);
 	id_t repr(size_t id);
+	size_t components() const ;
+	Color average_color(byte *data, id_t clust);
 
 private:
 	using conflict = std::pair<size_t, size_t>;
@@ -113,7 +117,7 @@ private:
 struct Edge
 {
 	int shape;
-	vec2 nodes[4];
+	vec2<float> nodes[4];
 };
 
 struct Shape

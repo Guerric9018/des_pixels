@@ -90,3 +90,28 @@ void Clusters::conflict_resolution(std::vector<conflict> const& diagonals)
 		}
 	}
 }
+
+size_t Clusters::components() const
+{
+	return cluster2vertex.size();
+}
+
+Color Clusters::average_color(byte *data, id_t clust)
+{
+	auto &cluster = cluster2vertex[clust];
+	if (cluster.empty()) return Color();
+
+	long totalR = 0, totalG = 0, totalB = 0;
+	for (const auto& vertex : cluster) {
+		auto color = vertex.color(data);
+		totalR += color.r;
+		totalG += color.g;
+		totalB += color.b;
+	}
+
+	return Color(
+		static_cast<unsigned char>(totalR / cluster.size()),
+		static_cast<unsigned char>(totalG / cluster.size()),
+		static_cast<unsigned char>(totalB / cluster.size())
+	);
+}
