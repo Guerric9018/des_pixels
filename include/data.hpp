@@ -1,6 +1,6 @@
 #include <vector>
 #include <map>
-#include <algorithm>
+#include <cassert>
 
 using byte = unsigned char;
 using id_t = unsigned;
@@ -27,27 +27,39 @@ struct Vertex
 
 struct union_find
 {
-	std::vector<unsigned> data;
+	using value_t = unsigned;
+	std::vector<value_t> data;
 
-	union_find(size_t sz) : data(sz)
+	union_find(size_t sz) : data(sz, value_t(-1))
 	{
-		for (size_t i = 0; i < sz; ++i) {
-			data[i] = i;
-		}
 	}
 
 	unsigned find(unsigned id)
 	{
-		unsigned at = id;
-		while (at != data[at]) {
-			at = data[at];
+		if (data[id] >= (1u << 31)) {
+			return id;
 		}
+		value_t at = id;
+		do {
+			at = data[at];
+		} while (data[at] < (1u << 31));
 		return data[id] = at;
 	}
 
 	unsigned unite(unsigned a, unsigned b)
 	{
-		return data[find(b)] = find(a);
+		a = find(a);
+		b = find(b);
+		if (a == b) {
+			return a;
+		}
+		data[a] += data[b];
+		return data[b] = a;
+	}
+
+	size_t count(unsigned id)
+	{
+		return -data[find(id)];
 	}
 };
 
@@ -94,7 +106,7 @@ struct Clusters
 private:
 	using conflict = std::pair<size_t, size_t>;
 	std::vector<conflict> merge_nonconflicts(byte *data);
-	void partial_mapping();
+	void reverse_mapping();
 	void conflict_resolution(std::vector<conflict> const& diagonals);
 };
 

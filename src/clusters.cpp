@@ -4,8 +4,8 @@ Clusters::Clusters(size_t width, size_t height, byte *data)
 	: width(width), height(height), vertex2cluster(width * height)
 {
 	auto diag = merge_nonconflicts(data);
-	partial_mapping();
 	conflict_resolution(diag);
+	reverse_mapping();
 }
 
 id_t Clusters::repr(size_t id)
@@ -52,9 +52,11 @@ std::vector<Clusters::conflict> Clusters::merge_nonconflicts(byte *data)
 				auto at = index(at_pos.x, at_pos.y);
 				// when this passes, we know the corresponding pixels adjacent have indices in bounds
 				if (same_color(data, base, at)) {
-					// avoid the counter diagonal to add duplicate diagonals
-					if (same_color(data, at - width, base + width) && ioffset != 3) {
-						diagonals.push_back(std::make_pair(base, at));
+					if (same_color(data, at - width, base + width)) {
+						// avoid the counter diagonal to add duplicate diagonals
+						if (ioffset != 3) {
+							diagonals.push_back(std::make_pair(base, at));
+						}
 					} else {
 						vertex2cluster.unite(base, at);
 					}
@@ -65,7 +67,7 @@ std::vector<Clusters::conflict> Clusters::merge_nonconflicts(byte *data)
 	return diagonals;
 }
 
-void Clusters::partial_mapping()
+void Clusters::reverse_mapping()
 {
 	for (id_t i = 0; i < height * width; ++i) {
 		cluster2vertex[vertex2cluster.find(i)].push_back(Vertex{ i });
@@ -75,27 +77,16 @@ void Clusters::partial_mapping()
 void Clusters::conflict_resolution(std::vector<conflict> const& diagonals)
 {
 	for (auto [base, at] : diagonals) {
-		struct cluster_cardinality { size_t cardinality; size_t id; };
-		cluster_cardinality choices[4];
-		choices[0] = { cluster2vertex[vertex2cluster.find(base)].size(), base };
-		choices[1] = { cluster2vertex[vertex2cluster.find(at)].size(), at };
-		choices[2] = { cluster2vertex[vertex2cluster.find(at - width)].size(), at - width };
-		choices[3] = { cluster2vertex[vertex2cluster.find(base + width)].size(), base + width };
-		auto best = std::min_element(std::begin(choices), std::end(choices), [] (auto c1, auto c2) { return c1.cardinality - c2.cardinality; });
+		id_t main_diag_a = vertex2cluster.find(base);
+		id_t main_diag_b = vertex2cluster.find(at);
+		id_t counter_diag_a = vertex2cluster.find(at - width);
+		id_t counter_diag_b = vertex2cluster.find(base + width);
 		size_t merge_a, merge_b;
-		if (best->id == base || best->id == at) {
-			merge_a = vertex2cluster.find(base);
-			merge_b = vertex2cluster.find(at);
+		if (std::min(vertex2cluster.count(main_diag_a), vertex2cluster.count(main_diag_b))
+		  < std::min(vertex2cluster.count(counter_diag_a), vertex2cluster.count(counter_diag_b))) {
+			vertex2cluster.unite(main_diag_a, main_diag_b);
 		} else {
-			merge_a = vertex2cluster.find(at - width);
-			merge_b = vertex2cluster.find(base + width);
-		}
-		auto merge_target = vertex2cluster.unite(merge_a, merge_b);
-		auto merge_source = merge_target ^ merge_a ^ merge_b;
-		auto merge_data = cluster2vertex.extract(merge_source).mapped();
-		auto &merged = cluster2vertex[merge_target];
-		for (auto elt : merge_data) {
-			merged.push_back(elt);
+			vertex2cluster.unite(counter_diag_a, counter_diag_b);
 		}
 	}
 }
