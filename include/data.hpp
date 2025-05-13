@@ -110,8 +110,14 @@ private:
 	void conflict_resolution(std::vector<conflict> const& diagonals);
 };
 
-struct Boundary
+struct Edge
 {
-	std::vector<vec2<float>> corner;
-	std::vector<vec2<float>> edge;
+	int shape;
+	vec2 nodes[4];
+};
+
+struct Shape
+{
+	int id;
+	std::vector<Edge> edges;
 };
