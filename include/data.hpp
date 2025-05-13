@@ -27,26 +27,25 @@ struct Vertex
 
 struct union_find
 {
-	using value_t = unsigned;
-	std::vector<value_t> data;
+	std::vector<id_t> data;
 
-	union_find(size_t sz) : data(sz, value_t(-1))
+	union_find(size_t sz) : data(sz, id_t(-1))
 	{
 	}
 
-	unsigned find(unsigned id)
+	id_t find(id_t id)
 	{
 		if (data[id] >= (1u << 31)) {
 			return id;
 		}
-		value_t at = id;
+		id_t at = id;
 		do {
 			at = data[at];
 		} while (data[at] < (1u << 31));
 		return data[id] = at;
 	}
 
-	unsigned unite(unsigned a, unsigned b)
+	id_t unite(id_t a, id_t b)
 	{
 		a = find(a);
 		b = find(b);
@@ -57,7 +56,7 @@ struct union_find
 		return data[b] = a;
 	}
 
-	size_t count(unsigned id)
+	size_t count(id_t id)
 	{
 		return -data[find(id)];
 	}
