@@ -1,6 +1,7 @@
 #include <vector>
 #include <map>
 #include <cassert>
+#include <cstddef>
 
 using byte = unsigned char;
 using id_t = unsigned;
@@ -117,6 +118,10 @@ struct Edge
 {
 	int shape;
 	vec2<float> nodes[4];
+
+	Edge(int s, const vec2<float>(&n)[4]) : shape(s) {
+		std::copy(n, n + 4, nodes);
+	}
 };
 
 struct Shape

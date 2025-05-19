@@ -5,55 +5,50 @@
 #include <vector>
 #include "data.hpp"
 
-#if 0
 std::vector<Shape> buildShapes(Clusters& clusters, size_t width, size_t height)
 {
 	auto index = [=] (size_t x, size_t y) { return x + y * width; };
 
 	std::vector<Shape> shapes(clusters.components());
 
-        size_t offsets[] = {
-                +1,
-                -1 + width,
-                +width,
-                +1 + width,
+	struct Offset {
+		int dx, dy;
+		float fx, fy;
+	};
+        
+	const Offset directions[4] = {
+		{+1,  0, +0.5f,  0.0f},
+		{-1, +1, -0.5f, +0.5f},
+		{0, +1,  0.0f, +0.5f},
+		{+1, +1, +0.5f, +0.5f},
         };
 
-	float float_x_offsets[] = {
-		+0.5f,
-		-0.5f,
-		+0.0f,
-		+0.5f,
-	};
-
-	float float_y_offsets[] = {
-		+0.0f,
-		+0.5f,
-		+0.5f,
-		+0.5f,
-	};
-	
 	for (size_t y = 0; y < height; ++y) {
                 for (size_t x = 0; x < width; ++x) {
                         auto vertex_a = index(x, y);
-			for (size_t direction = 0; direction < 4; ++direction) {
-				auto vertex_b = vertex_a + offsets[direction];
+			int cluster_a = clusters.repr(vertex_a);
+
+			for (const auto& dir : directions) {
+				int nx = static_cast<int>(x) + dir.dx;
+				int ny = static_cast<int>(y) + dir.dy;
+				
+				if (nx < 0 || ny < 0 || nx >= static_cast<int>(width) || ny >= static_cast<int>(height))
+					continue;
+
 					
-				int cluster_a = clusters.find(vertex_a);
-				int cluster_b = clusters.find(vertex_b);
+				size_t vertex_b = index(nx, ny);
+				int cluster_b = clusters.repr(vertex_b);
 
 				if (cluster_a != cluster_b) {
 					vec2<float> nodes[4];
-					nodes[0] = {(float)x + float_x_offsets[direction],
-					      	    (float)y + float_y_offsets[direction]};
+					nodes[0] = { static_cast<float>(x) + dir.fx,
+						     static_cast<float>(y) + dir.fy };
 
-					Edge edge_a = {cluster_a, nodes};  
-					Edge edge_b = {cluster_b, nodes};
-					
 					shapes[cluster_a].id = cluster_a;
-					shapes[cluster_a].edges.push_back(edge_a);
+					shapes[cluster_a].edges.push_back({cluster_a, nodes});
+
 					shapes[cluster_b].id = cluster_b;
-					shapes[cluster_b].edges.push_back(edge_b);
+					shapes[cluster_b].edges.push_back({cluster_b, nodes});
 				}
 			}
 		}
@@ -61,7 +56,6 @@ std::vector<Shape> buildShapes(Clusters& clusters, size_t width, size_t height)
 
 	return shapes;
 }
-#endif
 
 int main(int argc, char **argv)
 {
