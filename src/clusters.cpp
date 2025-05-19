@@ -1,9 +1,5 @@
 #include "data.hpp"
 #include <vector>
-#include <utility>
-#include <algorithm>
-#include <cstddef>
-#include <cstdint>
 
 Clusters::Clusters(size_t width, size_t height, byte *data)
 	: width(width), height(height), vertex2cluster(width * height)

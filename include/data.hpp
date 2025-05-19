@@ -1,6 +1,5 @@
 #include <vector>
 #include <map>
-#include <cassert>
 #include <cstddef>
 
 using byte = unsigned char;
