@@ -5,7 +5,12 @@
 #include <vector>
 #include "data.hpp"
 
-std::vector<Shape> buildShapes(Clusters& clusters, size_t width, size_t height)
+vec2<float> lerp(vec2<float> a, vec2<float> b, float t)
+{
+	return a + (b - a) * t;
+}
+
+void buildShapes(Clusters& clusters, size_t width, size_t height)
 {
 	auto index = [=] (size_t x, size_t y) { return x + y * width; };
 
@@ -13,51 +18,41 @@ std::vector<Shape> buildShapes(Clusters& clusters, size_t width, size_t height)
 	std::vector<std::array<size_t, 4>> texel_edges;
 
 	struct Offset {
-		int dx, dy;
-		float fx_start, fy_start;
-		float fx_end, fy_end;
+		vec2<size_t> i;
+		vec2<float> start;
+		vec2<float> end;
 	};
         
 	const Offset directions[4] = {
-		{-1,  0, -0.5f, -0.5f, -0.5f, +0.5f},
-		{ 0, +1, -0.5f, +0.5f, +0.5f, +0.5f},
-		{+1,  0, +0.5f, -0.5f, +0.5f, +0.5f},
-		{ 0, -1, -0.5f, -0.5f, +0.5f, -0.5f},
+		{{ size_t(-1),  0 }, { -0.5f, -0.5f }, { -0.5f, +0.5f }},
+		{{  0, +1 }, { -0.5f, +0.5f }, { +0.5f, +0.5f }},
+		{{ +1,  0 }, { +0.5f, -0.5f }, { +0.5f, +0.5f }},
+		{{  0, size_t(-1) }, { -0.5f, -0.5f }, { +0.5f, -0.5f }},
         };
 
 	for (size_t y = 0; y < height; ++y) {
                 for (size_t x = 0; x < width; ++x) {
+			vec2<size_t> current{ x, y };
                         auto vertex_current = index(x, y);
-			int cluster_current = clusters.repr(vertex_current);
 
 			for (const auto& dir : directions) {
-				int nx = static_cast<int>(x) + dir.dx;
-				int ny = static_cast<int>(y) + dir.dy;
-				
-				if (nx < 0 || ny < 0 || nx >= static_cast<int>(width) || ny >= static_cast<int>(height))
+				auto other = current + dir.i;
+				if (other.x >= width || other.y >= height)
 					continue;
 
-					
-				size_t vertex_other = index(nx, ny);
-				int cluster_other = clusters.repr(vertex_other);
-
-				if (cluster_current != cluster_other) {
+				size_t vertex_other = index(other.x, other.y);
+				if (clusters.repr(vertex_current) != clusters.repr(vertex_other)) {
 					auto base = nodes.size();
-					
-					nodes.push_back({ static_cast<float>(x) + dir.fx_start,
-						          static_cast<float>(y) + dir.fy_start });
-					nodes.push_back({ static_cast<float>(x) + dir.fx_end,
-						          static_cast<float>(y) + dir.fy_end });
-					nodes.push_back({ edge[0] + 1.0f * (edge[1] - edge[0]) / 3.0f });
-					nodes.push_back({ edge[0] + 2.0f * (edge[1] - edge[0]) / 3.0f });
-
-					texel_edges.emplace_back(base, base + 1, base + 2, base + 3);
+					vec2<float> current_f{ static_cast<float>(current.x), static_cast<float>(current.y) };
+					nodes.emplace_back(current_f + dir.start);
+					nodes.emplace_back(current_f + dir.end);
+					nodes.push_back(lerp(nodes[base], nodes[base+1], 1.0f / 3.0f));
+					nodes.push_back(lerp(nodes[base], nodes[base+1], 2.0f / 3.0f));
+					texel_edges.emplace_back(std::array{ base, base + 1, base + 2, base + 3 });
 				}
 			}
 		}
 	}
-
-	return shapes;
 }
 
 int main(int argc, char **argv)

@@ -1,5 +1,6 @@
 #include <vector>
 #include <map>
+#include <array>
 #include <cstddef>
 
 using byte = unsigned char;
@@ -68,6 +69,8 @@ struct vec2
 	D x;
 	D y;
 
+	vec2() = default;
+	vec2(D x, D y) : x(x), y(y) {}
 	D &operator[](size_t i) { return (&x)[i]; }
 	const D &operator[](size_t i) const { return (&x)[i]; }
 };
@@ -82,6 +85,12 @@ template <typename D>
 inline vec2<D> operator-(vec2<D> lhs, vec2<D> rhs)
 {
 	return vec2{ lhs.x - rhs.x, lhs.y - rhs.y };
+}
+
+template <typename D>
+inline vec2<D> operator*(vec2<D> lhs, D scale)
+{
+	return vec2{ lhs.x * scale, lhs.y * scale };
 }
 
 template <typename D>
