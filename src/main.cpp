@@ -9,24 +9,26 @@ std::vector<Shape> buildShapes(Clusters& clusters, size_t width, size_t height)
 {
 	auto index = [=] (size_t x, size_t y) { return x + y * width; };
 
-	std::vector<Shape> shapes(clusters.components());
+	std::vector<vec2<float>> nodes;
+	std::vector<std::array<size_t, 4>> texel_edges;
 
 	struct Offset {
 		int dx, dy;
-		float fx, fy;
+		float fx_start, fy_start;
+		float fx_end, fy_end;
 	};
         
 	const Offset directions[4] = {
-		{+1,  0, +0.5f,  0.0f},
-		{-1, +1, -0.5f, +0.5f},
-		{0, +1,  0.0f, +0.5f},
-		{+1, +1, +0.5f, +0.5f},
+		{-1,  0, -0.5f, -0.5f, -0.5f, +0.5f},
+		{ 0, +1, -0.5f, +0.5f, +0.5f, +0.5f},
+		{+1,  0, +0.5f, -0.5f, +0.5f, +0.5f},
+		{ 0, -1, -0.5f, -0.5f, +0.5f, -0.5f},
         };
 
 	for (size_t y = 0; y < height; ++y) {
                 for (size_t x = 0; x < width; ++x) {
-                        auto vertex_a = index(x, y);
-			int cluster_a = clusters.repr(vertex_a);
+                        auto vertex_current = index(x, y);
+			int cluster_current = clusters.repr(vertex_current);
 
 			for (const auto& dir : directions) {
 				int nx = static_cast<int>(x) + dir.dx;
@@ -36,19 +38,20 @@ std::vector<Shape> buildShapes(Clusters& clusters, size_t width, size_t height)
 					continue;
 
 					
-				size_t vertex_b = index(nx, ny);
-				int cluster_b = clusters.repr(vertex_b);
+				size_t vertex_other = index(nx, ny);
+				int cluster_other = clusters.repr(vertex_other);
 
-				if (cluster_a != cluster_b) {
-					vec2<float> nodes[4];
-					nodes[0] = { static_cast<float>(x) + dir.fx,
-						     static_cast<float>(y) + dir.fy };
+				if (cluster_current != cluster_other) {
+					auto base = nodes.size();
+					
+					nodes.push_back({ static_cast<float>(x) + dir.fx_start,
+						          static_cast<float>(y) + dir.fy_start });
+					nodes.push_back({ static_cast<float>(x) + dir.fx_end,
+						          static_cast<float>(y) + dir.fy_end });
+					nodes.push_back({ edge[0] + 1.0f * (edge[1] - edge[0]) / 3.0f });
+					nodes.push_back({ edge[0] + 2.0f * (edge[1] - edge[0]) / 3.0f });
 
-					shapes[cluster_a].id = cluster_a;
-					shapes[cluster_a].edges.push_back({cluster_a, nodes});
-
-					shapes[cluster_b].id = cluster_b;
-					shapes[cluster_b].edges.push_back({cluster_b, nodes});
+					texel_edges.emplace_back(base, base + 1, base + 2, base + 3);
 				}
 			}
 		}

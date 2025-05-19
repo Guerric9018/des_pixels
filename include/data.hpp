@@ -115,16 +115,11 @@ private:
 
 struct Edge
 {
-	int shape;
-	vec2<float> nodes[4];
-
-	Edge(int s, const vec2<float>(&n)[4]) : shape(s) {
-		std::copy(n, n + 4, nodes);
-	}
+	std::array<vec2<float>, 4> node;
 };
 
 struct Shape
 {
-	int id;
+	id_t id;
 	std::vector<Edge> edges;
 };
