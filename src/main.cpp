@@ -15,7 +15,8 @@ void buildShapes(Clusters& clusters, size_t width, size_t height)
 	auto index = [=] (size_t x, size_t y) { return x + y * width; };
 
 	std::vector<vec2<float>> nodes;
-	std::vector<std::array<size_t, 4>> texel_edges;
+	enum { ARITY = 4 };
+	std::map<id_t, std::vector<std::array<size_t, ARITY>>> texel_edges;
 
 	struct Offset {
 		vec2<size_t> i;
@@ -23,11 +24,9 @@ void buildShapes(Clusters& clusters, size_t width, size_t height)
 		vec2<float> end;
 	};
         
-	const Offset directions[4] = {
-		{{ size_t(-1),  0 }, { -0.5f, -0.5f }, { -0.5f, +0.5f }},
-		{{  0, +1 }, { -0.5f, +0.5f }, { +0.5f, +0.5f }},
+	const Offset directions[] = {
 		{{ +1,  0 }, { +0.5f, -0.5f }, { +0.5f, +0.5f }},
-		{{  0, size_t(-1) }, { -0.5f, -0.5f }, { +0.5f, -0.5f }},
+		{{  0, +1 }, { -0.5f, +0.5f }, { +0.5f, +0.5f }},
         };
 
 	for (size_t y = 0; y < height; ++y) {
@@ -46,11 +45,26 @@ void buildShapes(Clusters& clusters, size_t width, size_t height)
 					vec2<float> current_f{ static_cast<float>(current.x), static_cast<float>(current.y) };
 					nodes.emplace_back(current_f + dir.start);
 					nodes.emplace_back(current_f + dir.end);
-					nodes.push_back(lerp(nodes[base], nodes[base+1], 1.0f / 3.0f));
-					nodes.push_back(lerp(nodes[base], nodes[base+1], 2.0f / 3.0f));
-					texel_edges.emplace_back(std::array{ base, base + 1, base + 2, base + 3 });
+					for (int i = 0; i < ARITY - 2; ++i) {
+						nodes.push_back(lerp(nodes[base], nodes[base+1], static_cast<float>(i+1) / static_cast<float>(ARITY));
+					}
+					texel_edges[clusters.repr(vertex_current)].emplace_back(std::array{ base, base + 1, base + 2, base + 3 });
+					texel_edges[clusters.repr(vertex_other  )].emplace_back(std::array{ base, base + 1, base + 2, base + 3 });
 				}
 			}
+		}
+	}
+
+	std::vector<size_t> remap;
+	for (size_t node = 0; node < nodes.size(); ++node) {
+		remap.push_back(node);
+	}
+	for (size_t y = 0; y < height - 1; ++y) {
+		for (size_t x = 0; x < width - 1; ++x) {
+			auto bottom_right_R = 2 * ARITY * index(x, y) + 1;
+			auto bottom_right_L = bottom_right_R + ARITY;
+			auto bottom_left_L  = 2 * ARITY * index(x+1, y) + ARITY;
+			auto top_right_R    = 2 * ARITY * index(x, y+1);
 		}
 	}
 }
