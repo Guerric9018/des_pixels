@@ -5,6 +5,7 @@
 #include <vector>
 #include <cstdint>
 #include "data.hpp"
+#include "gfx.hpp"
 
 vec2<float> lerp(vec2<float> a, vec2<float> b, float t)
 {
@@ -151,6 +152,10 @@ int main(int argc, char **argv)
 		std::cout << "Usage: " << argv[0] << " <source> <target>\n";
 		return 1;
 	}
+	Window window("Depixel", 1280, 720);
+	window.run([] {
+		// ...
+	});
 	int width, height, channels;
 	stbi_set_flip_vertically_on_load(false);
 	auto pixels = stbi_load(argv[1], &width, &height, &channels, 0);

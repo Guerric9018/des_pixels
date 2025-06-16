@@ -1,8 +1,10 @@
-SRC = $(wildcard src/*.cpp)
-OBJ = $(SRC:src/%.cpp=bin/%.o)
+SRC = $(wildcard src/*.cpp) src/glad.c
+OBJ = $(SRC:src/%=bin/%.o)
 BIN = main
 
-CFLAGS = -ggdb3 -I include
+LDFLAGS = -lm -lglfw -lGL -lX11 -pthread -lXrandr -lXi -dl
+CXXFLAGS = -ggdb3 -I include -std=c++20
+CFLAGS   = -ggdb3 -I include
 
 all:: $(BIN)
 
@@ -10,10 +12,11 @@ clean::
 	rm -f $(BIN) $(OBJ)
 
 main: $(OBJ)
-	$(CXX) $(LDFLAGS) -o $@ $^
+	$(CXX) -o $@ $^ $(LDFLAGS)
 
-bin/%.o: src/%.cpp
-	$(CXX) $(CFLAGS) -c -o $@ $<
+bin/%.cpp.o: src/%.cpp
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
-bin/%.o: src/%.c
+bin/%.c.o: src/%.c
+	$(CC) $(CFLAGS) -c -o $@ $<
 
