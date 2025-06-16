@@ -10,61 +10,66 @@ vec2<float> lerp(vec2<float> a, vec2<float> b, float t)
 	return a + (b - a) * t;
 }
 
-void buildShapes(Clusters& clusters, size_t width, size_t height)
+struct Mesh {
+	std::vector<vec2<float>> vert;
+	std::vector<std::pair<size_t, size_t>> edge;
+};
+
+Mesh buildShapes(Clusters const& clusters, size_t width, size_t height)
 {
-	auto index = [=] (size_t x, size_t y) { return x + y * width; };
+	const auto index = [=] (size_t x, size_t y) { return x + y * width; };
+	static const size_t ARITY = 3;
 
-	std::vector<vec2<float>> nodes;
-	enum { ARITY = 4 };
-	std::map<id_t, std::vector<std::array<size_t, ARITY>>> texel_edges;
+	size_t edge_node_end = 0;
+	const size_t edge_node_max = 4*ARITY*width*height;
+	std::vector<vec2<float>> nodes(edge_node_max);
+	std::vector<std::pair<size_t, size_t>> edges;
 
-	struct Offset {
-		vec2<size_t> i;
-		vec2<float> start;
-		vec2<float> end;
+	struct choice {
+		size_t x;
+		size_t y;
+		enum { TOP, LEFT, BOTTOM, RIGHT } dir;
 	};
-        
-	const Offset directions[] = {
-		{{ +1,  0 }, { +0.5f, -0.5f }, { +0.5f, +0.5f }},
-		{{  0, +1 }, { -0.5f, +0.5f }, { +0.5f, +0.5f }},
-        };
+	std::vector<choice> corners;
 
-	for (size_t y = 0; y < height; ++y) {
-                for (size_t x = 0; x < width; ++x) {
-			vec2<size_t> current{ x, y };
-                        auto vertex_current = index(x, y);
+	struct offset_t {
+		vec2<size_t> pixel;
+		vec2<float > start;
+	};
 
-			for (const auto& dir : directions) {
-				auto other = current + dir.i;
-				if (other.x >= width || other.y >= height)
+	offset_t offset[] = {
+		{ { 0, size_t(-1) }, { +0.5f, -0.5f } },
+		{ { size_t(-1), 0 }, { -0.5f, -0.5f } },
+		{ { 0, size_t(+1) }, { -0.5f, +0.5f } },
+		{ { size_t(+1), 0 }, { +0.5f, +0.5f } },
+	};
+
+	for (size_t y = 1; y < height - 1; ++y) {
+		for (size_t x = 1; x < width - 1; ++x) {
+			const auto current = clusters.repr(index(x, y));
+			for (size_t o = 0; o < std::size(offset); ++o) {
+				const auto neighbr = clusters.repr(
+						x + offset[o].pixel.x,
+						y + offset[o].piyel.y
+				);
+				if (current == neighbr)
 					continue;
-
-				size_t vertex_other = index(other.x, other.y);
-				if (clusters.repr(vertex_current) != clusters.repr(vertex_other)) {
-					auto base = nodes.size();
-					vec2<float> current_f{ static_cast<float>(current.x), static_cast<float>(current.y) };
-					nodes.emplace_back(current_f + dir.start);
-					nodes.emplace_back(current_f + dir.end);
-					for (int i = 0; i < ARITY - 2; ++i) {
-						nodes.push_back(lerp(nodes[base], nodes[base+1], static_cast<float>(i+1) / static_cast<float>(ARITY));
+				const auto pos = vec2<float>(float(x), float(y));
+				const auto start = pos + offset[o].start;
+				const auto end   = pos + offset[(o+1) % 4].start;
+				for (size_t edge_node = 0; edge_node < ARITY; ++edge_node) {
+					const float t = float(edge_node+1) / float(ARITY+1);
+					if (edge_node < ARITY-1) {
+						edges.emplace_back(edge_node_end, edge_node_end+1);
 					}
-					texel_edges[clusters.repr(vertex_current)].emplace_back(std::array{ base, base + 1, base + 2, base + 3 });
-					texel_edges[clusters.repr(vertex_other  )].emplace_back(std::array{ base, base + 1, base + 2, base + 3 });
+					nodes[edge_node_end++] = lerp(start, end, t);
 				}
+				nodes.emplace_back(start);
+				nodes.emplace_back(end  );
+				edges.emplace_back(nodes.size()-2, edge_node_end-ARITY);
+				edges.emplace_back(nodes.size()-1, edge_node_end-1    );
+				corners.push_back({ x, y, o });
 			}
-		}
-	}
-
-	std::vector<size_t> remap;
-	for (size_t node = 0; node < nodes.size(); ++node) {
-		remap.push_back(node);
-	}
-	for (size_t y = 0; y < height - 1; ++y) {
-		for (size_t x = 0; x < width - 1; ++x) {
-			auto bottom_right_R = 2 * ARITY * index(x, y) + 1;
-			auto bottom_right_L = bottom_right_R + ARITY;
-			auto bottom_left_L  = 2 * ARITY * index(x+1, y) + ARITY;
-			auto top_right_R    = 2 * ARITY * index(x, y+1);
 		}
 	}
 }
