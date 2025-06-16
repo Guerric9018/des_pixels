@@ -15,7 +15,7 @@ struct Mesh {
 	std::vector<std::pair<size_t, size_t>> edge;
 };
 
-Mesh buildShapes(Clusters const& clusters, size_t width, size_t height)
+Mesh buildShapes(Clusters& clusters, size_t width, size_t height)
 {
 	const auto index = [=] (size_t x, size_t y) { return x + y * width; };
 	static const size_t ARITY = 3;
@@ -28,7 +28,7 @@ Mesh buildShapes(Clusters const& clusters, size_t width, size_t height)
 	struct choice {
 		size_t x;
 		size_t y;
-		enum { TOP, LEFT, BOTTOM, RIGHT } dir;
+		size_t dir;
 	};
 	std::vector<choice> corners;
 
@@ -48,10 +48,10 @@ Mesh buildShapes(Clusters const& clusters, size_t width, size_t height)
 		for (size_t x = 1; x < width - 1; ++x) {
 			const auto current = clusters.repr(index(x, y));
 			for (size_t o = 0; o < std::size(offset); ++o) {
-				const auto neighbr = clusters.repr(
+				const auto neighbr = clusters.repr(index(
 						x + offset[o].pixel.x,
-						y + offset[o].piyel.y
-				);
+						y + offset[o].pixel.y
+				));
 				if (current == neighbr)
 					continue;
 				const auto pos = vec2<float>(float(x), float(y));
@@ -68,7 +68,7 @@ Mesh buildShapes(Clusters const& clusters, size_t width, size_t height)
 				nodes.emplace_back(end  );
 				edges.emplace_back(nodes.size()-2, edge_node_end-ARITY);
 				edges.emplace_back(nodes.size()-1, edge_node_end-1    );
-				corners.push_back({ x, y, o });
+				corners.push_back(choice{ x, y, o });
 			}
 		}
 	}
