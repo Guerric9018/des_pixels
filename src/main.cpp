@@ -6,6 +6,8 @@
 #include <cstdint>
 #include "data.hpp"
 #include "gfx.hpp"
+#include "gfx/shader.hpp"
+#include "gfx/buffer.hpp"
 
 vec2<float> lerp(vec2<float> a, vec2<float> b, float t)
 {
@@ -153,8 +155,51 @@ int main(int argc, char **argv)
 		return 1;
 	}
 	Window window("Depixel", 1280, 720);
-	window.run([] {
-		// ...
+
+	Shader shader(
+		ShaderStage(
+			R"(#version 330 core
+			layout(location = 0) in vec2 pos;
+			void main() {
+				gl_Position = vec4(pos, 0.0, 1.0);
+			})", ShaderStage::Vertex),
+		ShaderStage(
+			R"(#version 330 core
+			out vec4 frag_color;
+			void main() {
+				frag_color = vec4(0.8, 0.1, 0.2, 1.0);
+			})", ShaderStage::Fragment)
+	);
+	shader.bind();
+
+	struct attr0descr {
+		using element_type = float;
+		using attrib_type  = vec2<float>;
+		using vertex_type  = vec2<float>;
+		enum : GLint { element_count = 2 };
+		enum : GLuint { location = 0 };
+	};
+
+	VertexArray va;
+	{
+		vec2<float> vertices[] = {
+			{ -0.5f, -0.5f },
+			{ +0.5f, -0.5f },
+			{ +0.5f, +0.5f },
+			{ -0.5f, +0.5f },
+		};
+		GLuint indices[] = {
+			0, 1, 2,
+			2, 3, 0,
+		};
+		VertexBuffer vb(vertices, attr0descr{});
+		vb.leak();
+		IndexBuffer ib(indices);
+		ib.leak();
+	}
+
+	window.run([&] {
+		glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, nullptr);
 	});
 	int width, height, channels;
 	stbi_set_flip_vertically_on_load(false);
