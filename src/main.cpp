@@ -265,7 +265,7 @@ int main(int argc, char **argv)
 	};
 	std::vector<std::vector<vec2<float>>> cluster_pos;
 	for (const auto &[_, cluster] : clusters.get()) {
-		cluster_pos.emplace_back(cluster.size());
+		cluster_pos.emplace_back();
 		for (const auto &[xy] : cluster) {
 			const auto x = xy % width;
 			const auto y = xy / width;
