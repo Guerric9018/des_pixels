@@ -252,8 +252,7 @@ Mesh buildShapes(Clusters& clusters, size_t width, size_t height, Window &window
 
 	std::map<id_t, id_t> compress;
 	for (id_t i = 0; i < node_map.data.size(); ++i) {
-		if (node_map.count(i) > 1)
-			compress.try_emplace(node_map.find(i), compress.size());
+		compress.try_emplace(node_map.find(i), compress.size());
 	}
 
 	lines.clear();
@@ -264,7 +263,9 @@ Mesh buildShapes(Clusters& clusters, size_t width, size_t height, Window &window
 	}
 	for (const auto [orig, mapped] : compress) {
 		for (const auto neighbr : edges[orig]) {
-			const auto [min, max] = std::minmax(mapped, compress[node_map.find(neighbr)]);
+			const auto mapped_neighbr = compress.find(node_map.find(neighbr));
+			assert(mapped_neighbr != compress.end());
+			const auto [min, max] = std::minmax(mapped, mapped_neighbr->second);
 			assert(min != max);
 			remapped_edges[min].emplace(max);
 			const auto start = compressed_nodes[min];
