@@ -261,6 +261,8 @@ Mesh buildShapes(Clusters& clusters, size_t width, size_t height, Window &window
 	std::map<size_t, std::set<size_t>> remapped_edges;
 	for (const auto [orig, mapped] : compress) {
 		compressed_nodes[mapped] = nodes[orig];
+	}
+	for (const auto [orig, mapped] : compress) {
 		for (const auto neighbr : edges[orig]) {
 			const auto [min, max] = std::minmax(mapped, compress[node_map.find(neighbr)]);
 			assert(min != max);
