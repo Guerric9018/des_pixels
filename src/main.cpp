@@ -148,6 +148,21 @@ Mesh buildShapes(Clusters& clusters, size_t width, size_t height)
 	}
 }
 
+template <buffer_description descr>
+void draw_quads(
+	Shader const &shader,
+	VertexArray const &va,
+	VertexBuffer const &vb,
+	std::span<vec2<float>> data,
+	descr d
+)
+{
+	shader.bind();
+	va.bind();
+	vb.update(data, d);
+	glDrawElementsInstanced(GL_TRIANGLES, 6, GL_UNSIGNED_INT, nullptr, data.size());
+}
+
 int main(int argc, char **argv)
 {
 	if (argc != 3) {
@@ -159,9 +174,12 @@ int main(int argc, char **argv)
 	Shader shader(
 		ShaderStage(
 			R"(#version 330 core
-			layout(location = 0) in vec2 pos;
+			layout(location = 0) in vec2 attr_pos;
+			layout(location = 1) in vec2 inst_pos;
+			uniform float scale;
 			void main() {
-				gl_Position = vec4(pos, 0.0, 1.0);
+				vec2 pos = attr_pos + inst_pos;
+				gl_Position = vec4(pos * scale, 0.0, 1.0);
 			})", ShaderStage::Vertex),
 		ShaderStage(
 			R"(#version 330 core
@@ -171,6 +189,7 @@ int main(int argc, char **argv)
 			})", ShaderStage::Fragment)
 	);
 	shader.bind();
+	shader.set<float>("scale", 0.1f);
 
 	struct attr0descr {
 		using element_type = float;
@@ -178,6 +197,16 @@ int main(int argc, char **argv)
 		using vertex_type  = vec2<float>;
 		enum : GLint { element_count = 2 };
 		enum : GLuint { location = 0 };
+		enum : GLuint { instanced = 0 };
+	};
+
+	struct attr1descr {
+		using element_type = float;
+		using attrib_type  = vec2<float>;
+		using vertex_type  = vec2<float>;
+		enum : GLint { element_count = 2 };
+		enum : GLuint { location = 1 };
+		enum : GLuint { instanced = 1 };
 	};
 
 	VertexArray va;
@@ -197,9 +226,16 @@ int main(int argc, char **argv)
 		IndexBuffer ib(indices);
 		ib.leak();
 	}
+	size_t npos = 256;
+	auto pos = new vec2<float>[npos];
+	VertexBuffer vb_pos(std::span{static_cast<vec2<float>*>(nullptr), npos * sizeof *pos}, attr1descr{});
+	pos[0] = vec2<float>{ 0.3f, -0.2f };
+	pos[1] = vec2<float>{ 0.8f,  0.6f };
+	pos[2] = vec2<float>{ -0.7f, 0.1f };
+	vb_pos.update(std::span{pos, pos+3}, attr1descr{});
 
 	window.run([&] {
-		glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, nullptr);
+		draw_quads(shader, va, vb_pos, std::span{pos, pos+3}, attr1descr{});
 	});
 	int width, height, channels;
 	stbi_set_flip_vertically_on_load(false);
@@ -211,5 +247,6 @@ int main(int argc, char **argv)
 	std::cout << "found " << clusters.components() << " clusters\n";
 
 	stbi_image_free(pixels);
+	delete[] pos;
 }
 

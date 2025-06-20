@@ -19,8 +19,7 @@ concept buffer_description = requires {
 	typename T::vertex_type;
 	T::element_count;
 	T::location;
-	// { T::element_count } -> std::same_as<GLint>;
-	// { T::location } -> std::same_as<GLuint>;
+	T::instanced;
 };
 
 class GlBuffer
@@ -57,7 +56,12 @@ struct VertexBuffer : GlBuffer
 	VertexBuffer(std::span<typename descr::attrib_type> data, descr)
 	{
 		bind(GL_ARRAY_BUFFER);
-		glBufferData(GL_ARRAY_BUFFER, data.size_bytes(), data.data(), GL_STATIC_DRAW);
+		glBufferData(
+			GL_ARRAY_BUFFER,
+			data.size_bytes(),
+			data.data(),
+			descr::instanced? GL_DYNAMIC_DRAW: GL_STATIC_DRAW
+		);
 		glVertexAttribPointer(
 			descr::location,
 			descr::element_count,
@@ -67,6 +71,14 @@ struct VertexBuffer : GlBuffer
 			nullptr
 		);
 		glEnableVertexAttribArray(descr::location);
+		glVertexAttribDivisor(descr::location, descr::instanced);
+	}
+
+	template <buffer_description descr>
+	void update(std::span<typename descr::attrib_type> data, descr, GLintptr offset = 0) const
+	{
+		bind(GL_ARRAY_BUFFER);
+		glBufferSubData(GL_ARRAY_BUFFER, offset, data.size_bytes(), data.data());
 	}
 };
 
