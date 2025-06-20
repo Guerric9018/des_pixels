@@ -11,6 +11,7 @@
 #include "gfx.hpp"
 #include "gfx/shader.hpp"
 #include "gfx/buffer.hpp"
+#include "gfx/render.hpp"
 
 vec2<float> lerp(vec2<float> a, vec2<float> b, float t)
 {
@@ -33,67 +34,8 @@ size_t bit(size_t b)
 	return size_t{1} << b;
 }
 
-template <buffer_description descr>
-struct draw_info
-{
-	Shader &shader;
-	VertexArray &va;
-	VertexBuffer &vb;
-	size_t cnt;
-};
-
-struct draw_setting
-{
-	Shader const *shader;
-	VertexArray const *va;
-	VertexBuffer const *vb;
-	size_t vb_cnt;
-	char *data;
-	size_t attrib_size;
-	size_t inst_cnt;
-	vec4<float> color;
-	GLenum primitive;
-};
-
-std::vector<draw_setting> draw_settings;
-
-template <buffer_description descr>
-void draw_n(draw_info<descr> info, std::span<typename descr::attrib_type> data, vec4<float> color, GLenum primitive)
-{
-	draw_settings.emplace_back(draw_setting{
-		&info.shader,
-		&info.va,
-		&info.vb,
-		info.cnt,
-		reinterpret_cast<char*>(data.data()),
-		sizeof(typename descr::attrib_type),
-		data.size(),
-		color,
-		primitive
-	});
-}
-
-void call_draw(draw_setting const &ds)
-{
-	ds.shader->bind();
-	ds.shader->set("color", ds.color);
-	ds.va->bind();
-	size_t drawn = 0;
-	char *at = ds.data;
-	GLsizei attrib_count = (ds.primitive == GL_QUADS) ? 6: 2;
-	GLenum primitive = (ds.primitive == GL_QUADS) ? GL_TRIANGLES: GL_LINES;
-	size_t stride = ds.vb_cnt * ds.attrib_size;
-	for (; ds.inst_cnt - drawn > ds.vb_cnt; drawn += ds.vb_cnt, at += stride) {
-		ds.vb->update(std::span{at, at+stride});
-		glDrawElementsInstanced(primitive, attrib_count, GL_UNSIGNED_INT, nullptr, ds.vb_cnt);
-	}
-	size_t rem_inst = ds.inst_cnt - drawn;
-	ds.vb->update(std::span{at, at+ rem_inst*ds.attrib_size});
-	glDrawElementsInstanced(primitive, attrib_count, GL_UNSIGNED_INT, nullptr, rem_inst);
-}
-
 template <buffer_description D>
-Mesh buildShapes(Clusters& clusters, size_t width, size_t height, Window &window, draw_info<D> const &line_info)
+Mesh buildShapes(Clusters& clusters, size_t width, size_t height, Render &rdr, Render::draw_context<D> const &line_info)
 {
 	const auto index = [=] (size_t x, size_t y) { return y < height && x < width ? x + y * width: size_t(-1); };
 	static const size_t ARITY = 3;
@@ -159,13 +101,8 @@ Mesh buildShapes(Clusters& clusters, size_t width, size_t height, Window &window
 			lines.push_back(vec4<float>(start.x, start.y, end.x, end.y));
 		}
 	}
-	window.run([&] {
-		draw_settings.resize(clusters.components());
-		draw_n(line_info, lines, vec4<float>(0.8f, 0.9f, 0.8f, 1.0f), GL_LINES);
-		for (const auto &ds : draw_settings) {
-			call_draw(ds);
-		}
-	}, false);
+	rdr.submit(line_info, lines, vec4<float>(0.8f, 0.9f, 0.8f, 1.0f), GL_LINES);
+	rdr.draw();
 
 	union_find node_map(nodes.size());
 	static const float epsilon = std::pow(0.5f / float(ARITY + 1), 2);
@@ -183,13 +120,9 @@ Mesh buildShapes(Clusters& clusters, size_t width, size_t height, Window &window
 		}
 	}
 
-	auto reset = draw_settings.size();
-	window.run([&] {
-		draw_settings.resize(reset);
-		draw_n(line_info, links, vec4<float>(0.7f, 0.0f, 0.9f, 1.0f), GL_LINES);
-		for (const auto &ds: draw_settings)
-			call_draw(ds);
-	}, false);
+	rdr.keep();
+	rdr.submit(line_info, links, vec4<float>(0.7f, 0.0f, 0.9f, 1.0f), GL_LINES);
+	rdr.draw();
 
 	assert(nodes.size() - edge_node_max == 2*corners.size());
 	// corner nodes
@@ -242,12 +175,8 @@ Mesh buildShapes(Clusters& clusters, size_t width, size_t height, Window &window
 		}
 	}
 
-	window.run([&] {
-		draw_settings.resize(reset);
-		draw_n(line_info, links, vec4<float>(0.1f, 0.8f, 0.9f, 1.0f), GL_LINES);
-		for (const auto &ds: draw_settings)
-			call_draw(ds);
-	}, false);
+	rdr.submit(line_info, links, vec4<float>(0.1f, 0.8f, 0.9f, 1.0f), GL_LINES);
+	rdr.draw();
 
 	std::map<id_t, id_t> compress;
 	for (id_t i = 0; i < node_map.data.size(); ++i) {
@@ -273,12 +202,9 @@ Mesh buildShapes(Clusters& clusters, size_t width, size_t height, Window &window
 		}
 	}
 
-	window.run([&] {
-		draw_settings.resize(reset);
-		draw_n(line_info, lines, vec4<float>(1.0f, 1.0f, 1.0f, 1.0f), GL_LINES);
-		for (const auto &ds: draw_settings)
-			call_draw(ds);
-	}, false);
+	rdr.clear();
+	rdr.submit(line_info, lines, vec4<float>(1.0f, 1.0f, 1.0f, 1.0f), GL_LINES);
+	rdr.draw();
 
 	lines.clear();
 	std::vector<std::vector<size_t>> compressed_edges(remapped_edges.size());
@@ -291,12 +217,10 @@ Mesh buildShapes(Clusters& clusters, size_t width, size_t height, Window &window
 		}
 	}
 
-	window.run([&] {
-		draw_settings.resize(reset);
-		draw_n(line_info, lines, vec4<float>(1.0f, 1.0f, 1.0f, 1.0f), GL_LINES);
-		for (const auto &ds: draw_settings)
-			call_draw(ds);
-	}, true);
+	while (rdr.clear()) {
+		rdr.submit(line_info, lines, vec4<float>(1.0f, 1.0f, 1.0f, 1.0f), GL_LINES);
+		rdr.draw();
+	}
 
 	return Mesh{ std::move(compressed_nodes), std::move(compressed_edges) };
 }
@@ -374,7 +298,7 @@ int main(int argc, char **argv)
 	}
 	size_t npos = 256;
 	VertexBuffer vb_pos(std::span{static_cast<vec2<float>*>(nullptr), npos}, attr1descr{});
-	draw_info<attr1descr> info{shader, va, vb_pos, npos};
+	Render::draw_context<attr1descr> info{shader, va, vb_pos, npos};
 
 	int width, height, channels;
 	stbi_set_flip_vertically_on_load(true);
@@ -433,33 +357,15 @@ int main(int argc, char **argv)
 	}
 	size_t nline = 256;
 	VertexBuffer line_vb(std::span{static_cast<vec4<float>*>(nullptr), nline}, attr2descr{});
-	draw_info<attr2descr> line_info{line_shader, line_va, line_vb, nline};
+	Render::draw_context<attr2descr> line_info{line_shader, line_va, line_vb, nline};
 
-	window.run([&] {
-		vec4<float> pos[] = {
-			{ -0.5f, -0.5f, +0.5f, -0.5f },
-			{ +0.5f, -0.5f, +0.5f, +0.5f },
-			{ +0.5f, +0.5f, -0.5f, +0.5f },
-			{ -0.5f, +0.5f, -0.5f, -0.5f },
-		};
-		for (size_t ic = 0; ic < clusters.components(); ++ic) {
-			draw_n(info, cluster_pos[ic], colors[ic % std::size(colors)], GL_QUADS);
-		}
-		// draw_n(line_info, pos, vec4<float>(1.0f, 0.7f, 0.8f, 1.0f), GL_LINES);
+	Render rdr(std::move(window));
+	for (size_t ic = 0; ic < clusters.components(); ++ic) {
+		rdr.submit(info, cluster_pos[ic], colors[ic % std::size(colors)], GL_QUADS);
+	}
+	rdr.keep();
 
-		for (const auto &ds : draw_settings) {
-			call_draw(ds);
-		}
-
-	}, false);
-
-	auto mesh = buildShapes(clusters, width, height, window, line_info);
-
-	window.run([&] {
-		for (size_t ic = 0; ic < clusters.components(); ++ic) {
-			draw_n(info, cluster_pos[ic], colors[ic % std::size(colors)], GL_QUADS);
-		}
-	});
+	auto mesh = buildShapes(clusters, width, height, rdr, line_info);
 
 	stbi_image_free(pixels);
 }

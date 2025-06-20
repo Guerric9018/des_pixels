@@ -73,7 +73,7 @@ public:
 	}
 
 	template <typename T>
-	void set(std::string_view name, T const &value) const
+	inline void set(std::string_view name, T const &value) const
 	{
 		static_assert(false, "set unimplemented for this type");
 	}
@@ -81,14 +81,14 @@ public:
 };
 
 template <>
-void Shader::set<float>(std::string_view name, float const &value) const
+inline void Shader::set<float>(std::string_view name, float const &value) const
 {
 	const auto loc = glGetUniformLocation(id, name.data());
 	glUniform1f(loc, value);
 }
 
 template <>
-void Shader::set<vec4<float>>(std::string_view name, vec4<float> const &value) const
+inline void Shader::set<vec4<float>>(std::string_view name, vec4<float> const &value) const
 {
 	const auto loc = glGetUniformLocation(id, name.data());
 	glUniform4f(loc, value.x, value.y, value.z, value.w);
