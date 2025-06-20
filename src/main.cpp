@@ -248,7 +248,7 @@ Mesh buildShapes(Clusters& clusters, size_t width, size_t height, Window &window
 		draw_n(line_info, links, vec4<float>(0.1f, 0.8f, 0.9f, 1.0f), GL_LINES);
 		for (const auto &ds: draw_settings)
 			call_draw(ds);
-	}, true);
+	}, false);
 
 	std::map<id_t, id_t> compress;
 	for (id_t i = 0; i < node_map.data.size(); ++i) {
@@ -256,12 +256,26 @@ Mesh buildShapes(Clusters& clusters, size_t width, size_t height, Window &window
 			compress.try_emplace(node_map.find(i), compress.size());
 	}
 
+	lines.clear();
+	for (const auto [orig, mapped] : compress) {
+		const auto start = nodes[orig];
+		const auto end = nodes[mapped];
+		lines.push_back(vec4<float>(start.x, start.y, end.x, end.y));
+	}
+	window.run([&] {
+		draw_settings.resize(reset);
+		draw_n(line_info, lines, vec4<float>(0.1f, 0.8f, 0.9f, 1.0f), GL_LINES);
+		for (const auto &ds: draw_settings)
+			call_draw(ds);
+	}, true);
+
 	std::vector<vec2<float>> compressed_nodes(compress.size());
 	std::map<size_t, std::set<size_t>> remapped_edges;
 	for (const auto [orig, mapped] : compress) {
 		compressed_nodes[mapped] = nodes[orig];
 		for (const auto neighbr : edges[orig]) {
-			const auto [min, max] = std::minmax(mapped, compress[neighbr]);
+			const auto [min, max] = std::minmax(mapped, compress[node_map.find(neighbr)]);
+			assert(min != max);
 			remapped_edges[min].emplace(max);
 		}
 	}
