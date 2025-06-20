@@ -279,14 +279,25 @@ Mesh buildShapes(Clusters& clusters, size_t width, size_t height, Window &window
 		draw_n(line_info, lines, vec4<float>(1.0f, 1.0f, 1.0f, 1.0f), GL_LINES);
 		for (const auto &ds: draw_settings)
 			call_draw(ds);
-	}, true);
+	}, false);
 
+	lines.clear();
 	std::vector<std::vector<size_t>> compressed_edges(remapped_edges.size());
 	for (const auto &[s, neighbrs] : remapped_edges) {
 		for (const auto t : neighbrs) {
 			compressed_edges[s].push_back(t);
+			const auto start = compressed_nodes[s];
+			const auto end   = compressed_nodes[t];
+			lines.push_back(vec4<float>(start.x, start.y, end.x, end.y));
 		}
 	}
+
+	window.run([&] {
+		draw_settings.resize(reset);
+		draw_n(line_info, lines, vec4<float>(1.0f, 1.0f, 1.0f, 1.0f), GL_LINES);
+		for (const auto &ds: draw_settings)
+			call_draw(ds);
+	}, true);
 
 	return Mesh{ std::move(compressed_nodes), std::move(compressed_edges) };
 }
