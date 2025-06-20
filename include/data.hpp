@@ -1,3 +1,4 @@
+#pragma once
 #include <vector>
 #include <map>
 #include <array>
@@ -61,6 +62,15 @@ struct union_find
 	{
 		return -data[find(id)];
 	}
+};
+
+template <typename D>
+struct vec4
+{
+	D x;
+	D y;
+	D z;
+	D w;
 };
 
 template <typename D>

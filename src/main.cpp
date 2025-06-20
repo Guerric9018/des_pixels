@@ -149,17 +149,20 @@ Mesh buildShapes(Clusters& clusters, size_t width, size_t height)
 }
 
 template <buffer_description descr>
-void draw_quads(
-	Shader const &shader,
-	VertexArray const &va,
-	VertexBuffer const &vb,
-	std::span<vec2<float>> data,
-	descr d
-)
+struct draw_info
 {
-	shader.bind();
-	va.bind();
-	vb.update(data, d);
+	Shader &shader;
+	VertexArray &va;
+	VertexBuffer &vb;
+};
+
+template <buffer_description descr>
+void draw_quads(draw_info<descr> info, std::span<vec2<float>> data, vec4<float> color)
+{
+	info.shader.bind();
+	info.shader.set("color", color);
+	info.va.bind();
+	info.vb.update(data, descr{});
 	glDrawElementsInstanced(GL_TRIANGLES, 6, GL_UNSIGNED_INT, nullptr, data.size());
 }
 
@@ -184,12 +187,13 @@ int main(int argc, char **argv)
 		ShaderStage(
 			R"(#version 330 core
 			out vec4 frag_color;
+			uniform vec4 color;
 			void main() {
-				frag_color = vec4(0.8, 0.1, 0.2, 1.0);
+				frag_color = color;
 			})", ShaderStage::Fragment)
 	);
 	shader.bind();
-	shader.set<float>("scale", 0.1f);
+	shader.set("scale", 0.1f);
 
 	struct attr0descr {
 		using element_type = float;
@@ -234,8 +238,11 @@ int main(int argc, char **argv)
 	pos[2] = vec2<float>{ -0.7f, 0.1f };
 	vb_pos.update(std::span{pos, pos+3}, attr1descr{});
 
+	draw_info<attr1descr> info{shader, va, vb_pos};
+
+	vec4<float> qcolor{ 0.8f, 0.1f, 0.4f, 1.0f };
 	window.run([&] {
-		draw_quads(shader, va, vb_pos, std::span{pos, pos+3}, attr1descr{});
+		draw_quads(info, std::span{pos, pos+3}, qcolor);
 	});
 	int width, height, channels;
 	stbi_set_flip_vertically_on_load(false);
