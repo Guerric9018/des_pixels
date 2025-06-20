@@ -11,6 +11,8 @@ Clusters::Clusters(size_t width, size_t height, byte *data)
 
 id_t Clusters::repr(size_t id)
 {
+	if (id >= vertex2cluster.data.size())
+		return id_t(-1);
 	return vertex2cluster.find(id);
 }
 

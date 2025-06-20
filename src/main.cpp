@@ -95,7 +95,7 @@ void call_draw(draw_setting const &ds)
 template <buffer_description D>
 Mesh buildShapes(Clusters& clusters, size_t width, size_t height, Window &window, draw_info<D> const &line_info)
 {
-	const auto index = [=] (size_t x, size_t y) { return x + y * width; };
+	const auto index = [=] (size_t x, size_t y) { return y < height && x < width ? x + y * width: size_t(-1); };
 	static const size_t ARITY = 3;
 
 	size_t edge_node_end = 0;
@@ -123,14 +123,13 @@ Mesh buildShapes(Clusters& clusters, size_t width, size_t height, Window &window
 		{ { size_t(+1), 0 }, { +1.0f, +1.0f } },
 	};
 
-	for (size_t y = 1; y < height - 1; ++y) {
-		for (size_t x = 1; x < width - 1; ++x) {
+	for (size_t y = 0; y < height; ++y) {
+		for (size_t x = 0; x < width; ++x) {
 			const auto current = clusters.repr(index(x, y));
 			for (size_t o = 0; o < std::size(offset); ++o) {
-				const auto neighbr = clusters.repr(index(
-						x + offset[o].pixel.x,
-						y + offset[o].pixel.y
-				));
+				const auto nx = x + offset[o].pixel.x;
+				const auto ny = y + offset[o].pixel.y;
+				const auto neighbr = clusters.repr(index(nx, ny));
 				if (current == neighbr)
 					continue;
 				const auto pos = vec2<float>(float(x), float(y));
