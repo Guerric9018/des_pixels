@@ -3,6 +3,9 @@
 #include <iostream>
 #include <cassert>
 #include <vector>
+#include <map>
+#include <set>
+#include <algorithm>
 #include <cstdint>
 #include "data.hpp"
 #include "gfx.hpp"
@@ -22,7 +25,7 @@ float dist2(vec2<float> a, vec2<float> b)
 
 struct Mesh {
 	std::vector<vec2<float>> vert;
-	std::vector<std::pair<size_t, size_t>> edge;
+	std::vector<std::vector<size_t>> edge;
 };
 
 size_t bit(size_t b)
@@ -30,7 +33,67 @@ size_t bit(size_t b)
 	return size_t{1} << b;
 }
 
-Mesh buildShapes(Clusters& clusters, size_t width, size_t height)
+template <buffer_description descr>
+struct draw_info
+{
+	Shader &shader;
+	VertexArray &va;
+	VertexBuffer &vb;
+	size_t cnt;
+};
+
+struct draw_setting
+{
+	Shader const *shader;
+	VertexArray const *va;
+	VertexBuffer const *vb;
+	size_t vb_cnt;
+	char *data;
+	size_t attrib_size;
+	size_t inst_cnt;
+	vec4<float> color;
+	GLenum primitive;
+};
+
+std::vector<draw_setting> draw_settings;
+
+template <buffer_description descr>
+void draw_n(draw_info<descr> info, std::span<typename descr::attrib_type> data, vec4<float> color, GLenum primitive)
+{
+	draw_settings.emplace_back(draw_setting{
+		&info.shader,
+		&info.va,
+		&info.vb,
+		info.cnt,
+		reinterpret_cast<char*>(data.data()),
+		sizeof(typename descr::attrib_type),
+		data.size(),
+		color,
+		primitive
+	});
+}
+
+void call_draw(draw_setting const &ds)
+{
+	ds.shader->bind();
+	ds.shader->set("color", ds.color);
+	ds.va->bind();
+	size_t drawn = 0;
+	char *at = ds.data;
+	GLsizei attrib_count = (ds.primitive == GL_QUADS) ? 6: 2;
+	GLenum primitive = (ds.primitive == GL_QUADS) ? GL_TRIANGLES: GL_LINES;
+	size_t stride = ds.vb_cnt * ds.attrib_size;
+	for (; ds.inst_cnt - drawn > ds.vb_cnt; drawn += ds.vb_cnt, at += stride) {
+		ds.vb->update(std::span{at, at+stride});
+		glDrawElementsInstanced(primitive, attrib_count, GL_UNSIGNED_INT, nullptr, ds.vb_cnt);
+	}
+	size_t rem_inst = ds.inst_cnt - drawn;
+	ds.vb->update(std::span{at, at+ rem_inst*ds.attrib_size});
+	glDrawElementsInstanced(primitive, attrib_count, GL_UNSIGNED_INT, nullptr, rem_inst);
+}
+
+template <buffer_description D>
+Mesh buildShapes(Clusters& clusters, size_t width, size_t height, Window &window, draw_info<D> const &line_info)
 {
 	const auto index = [=] (size_t x, size_t y) { return x + y * width; };
 	static const size_t ARITY = 3;
@@ -38,7 +101,8 @@ Mesh buildShapes(Clusters& clusters, size_t width, size_t height)
 	size_t edge_node_end = 0;
 	const size_t edge_node_max = 4*ARITY*width*height;
 	std::vector<vec2<float>> nodes(edge_node_max);
-	std::vector<std::pair<size_t, size_t>> edges;
+	// edge between s and t and max(s,t) in edges[min(s,t)]
+	std::map<size_t, std::vector<size_t>> edges;
 
 	struct choice {
 		size_t x;
@@ -75,21 +139,37 @@ Mesh buildShapes(Clusters& clusters, size_t width, size_t height)
 				for (size_t edge_node = 0; edge_node < ARITY; ++edge_node) {
 					const float t = float(edge_node+1) / float(ARITY+1);
 					if (edge_node < ARITY-1) {
-						edges.emplace_back(edge_node_end, edge_node_end+1);
+						edges[edge_node_end].push_back(edge_node_end+1);
 					}
 					nodes[edge_node_end++] = lerp(start, end, t);
 				}
 				nodes.emplace_back(start);
 				nodes.emplace_back(end  );
-				edges.emplace_back(nodes.size()-2, edge_node_end-ARITY);
-				edges.emplace_back(nodes.size()-1, edge_node_end-1    );
+				edges[edge_node_end-ARITY].push_back(nodes.size()-2);
+				edges[edge_node_end-1    ].push_back(nodes.size()-1);
 				corners.push_back(choice{ x, y, o });
 			}
 		}
 	}
 
+	window.run([&] {
+		std::vector<vec4<float>> lines;
+		for (const auto &[s, neighbrs] : edges) {
+			for (const auto t : neighbrs) {
+				const auto start = nodes[s];
+				const auto end   = nodes[t];
+				lines.push_back(vec4<float>(start.x, start.y, end.x, end.y));
+			}
+		}
+		draw_settings.resize(clusters.components());
+		draw_n(line_info, lines, vec4<float>(0.8f, 0.9f, 0.8f, 1.0f), GL_LINES);
+		for (const auto &ds : draw_settings) {
+			call_draw(ds);
+		}
+	});
+
 	union_find node_map(nodes.size());
-	static const float epsilon = 0.5f / float(ARITY + 1);
+	static const float epsilon = std::pow(0.5f / float(ARITY + 1), 2);
 	// edge nodes
 	for (size_t en1 = 0; en1 < edge_node_end; ++en1) {
 		for (size_t en2 = en1 + 1; en2 < edge_node_end; ++en2) {
@@ -146,31 +226,31 @@ Mesh buildShapes(Clusters& clusters, size_t width, size_t height)
 			node_map.unite(cn1, cn2);
 		}
 	}
-}
 
-template <buffer_description descr>
-struct draw_info
-{
-	Shader &shader;
-	VertexArray &va;
-	VertexBuffer &vb;
-	size_t size;
-};
-
-template <buffer_description descr>
-void draw_quads(draw_info<descr> info, std::span<vec2<float>> data, vec4<float> color)
-{
-	info.shader.bind();
-	info.shader.set("color", color);
-	info.va.bind();
-	size_t drawn = 0;
-	vec2<float> *at = data.data();
-	for (; data.size() - drawn > info.size; drawn += info.size, at += info.size) {
-		info.vb.update(std::span{at, at+info.size}, descr{});
-		glDrawElementsInstanced(GL_TRIANGLES, 6, GL_UNSIGNED_INT, nullptr, info.size);
+	std::map<id_t, id_t> compress;
+	for (id_t i = 0; i < node_map.data.size(); ++i) {
+		if (node_map.count(i) > 1)
+			compress.try_emplace(node_map.find(i), compress.size());
 	}
-	info.vb.update(std::span{at, data.size() - drawn}, descr{});
-	glDrawElementsInstanced(GL_TRIANGLES, 6, GL_UNSIGNED_INT, nullptr, data.size() - drawn);
+
+	std::vector<vec2<float>> compressed_nodes(compress.size());
+	std::map<size_t, std::set<size_t>> remapped_edges;
+	for (const auto [orig, mapped] : compress) {
+		compressed_nodes[mapped] = nodes[orig];
+		for (const auto neighbr : edges[orig]) {
+			const auto [min, max] = std::minmax(mapped, compress[neighbr]);
+			remapped_edges[min].emplace(max);
+		}
+	}
+
+	std::vector<std::vector<size_t>> compressed_edges(remapped_edges.size());
+	for (const auto &[s, neighbrs] : remapped_edges) {
+		for (const auto t : neighbrs) {
+			compressed_edges[s].push_back(t);
+		}
+	}
+
+	return Mesh{ std::move(compressed_nodes), std::move(compressed_edges) };
 }
 
 int main(int argc, char **argv)
@@ -179,7 +259,7 @@ int main(int argc, char **argv)
 		std::cout << "Usage: " << argv[0] << " <source> <target>\n";
 		return 1;
 	}
-	Window window("Depixel", 1280, 720);
+	Window window("Depixel", 720, 720);
 
 	Shader shader(
 		ShaderStage(
@@ -187,9 +267,10 @@ int main(int argc, char **argv)
 			layout(location = 0) in vec2 attr_pos;
 			layout(location = 1) in vec2 inst_pos;
 			uniform float scale;
+			uniform float inner_scale;
 			void main() {
-				vec2 pos = attr_pos + inst_pos;
-				gl_Position = vec4(pos * scale, 0.0, 1.0);
+				vec2 pos = (attr_pos * inner_scale + inst_pos) * scale;
+				gl_Position = vec4(pos - vec2(0.5, 0.5), 0.0, 1.0);
 			})", ShaderStage::Vertex),
 		ShaderStage(
 			R"(#version 330 core
@@ -200,7 +281,6 @@ int main(int argc, char **argv)
 			})", ShaderStage::Fragment)
 	);
 	shader.bind();
-	shader.set("scale", 0.03f);
 
 	struct attr0descr {
 		using element_type = float;
@@ -220,31 +300,32 @@ int main(int argc, char **argv)
 		enum : GLuint { instanced = 1 };
 	};
 
+	struct attr2descr {
+		using element_type = float;
+		using attrib_type  = vec4<float>;
+		using vertex_type  = vec4<float>;
+		enum : GLint { element_count = 4 };
+		enum : GLuint { location = 2 };
+		enum : GLuint { instanced = 1 };
+	};
+
 	VertexArray va;
 	{
 		vec2<float> vertices[] = {
-			{ -0.5f, -0.5f },
-			{ +0.5f, -0.5f },
-			{ +0.5f, +0.5f },
-			{ -0.5f, +0.5f },
+			{ 0.0f, 0.0f },
+			{ 0.0f,-1.0f },
+			{ 1.0f,-1.0f },
+			{ 1.0f, 0.0f },
 		};
 		GLuint indices[] = {
 			0, 1, 2,
 			2, 3, 0,
 		};
-		VertexBuffer vb(vertices, attr0descr{});
-		vb.leak();
-		IndexBuffer ib(indices);
-		ib.leak();
+		VertexBuffer(vertices, attr0descr{}).leak();
+		IndexBuffer(indices).leak();
 	}
 	size_t npos = 256;
-	auto pos = new vec2<float>[npos];
-	VertexBuffer vb_pos(std::span{static_cast<vec2<float>*>(nullptr), npos * sizeof *pos}, attr1descr{});
-	pos[0] = vec2<float>{ 0.3f, -0.2f };
-	pos[1] = vec2<float>{ 0.8f,  0.6f };
-	pos[2] = vec2<float>{ -0.7f, 0.1f };
-	vb_pos.update(std::span{pos, pos+3}, attr1descr{});
-
+	VertexBuffer vb_pos(std::span{static_cast<vec2<float>*>(nullptr), npos}, attr1descr{});
 	draw_info<attr1descr> info{shader, va, vb_pos, npos};
 
 	int width, height, channels;
@@ -272,13 +353,66 @@ int main(int argc, char **argv)
 			cluster_pos.back().emplace_back(float(x), float(y));
 		}
 	}
+
+	shader.set("inner_scale", 1.0f);
+	shader.set("scale", 1.2f / width);
+
+	Shader line_shader(
+		ShaderStage(R"(#version 330 core
+			layout(location = 2) in vec4 inst_endpoints;
+			uniform float scale;
+			void main() {
+				vec2 pos = inst_endpoints.xy;
+				if ((gl_VertexID & 1) == 1) {
+					pos = inst_endpoints.zw;
+				}
+				gl_Position = vec4(pos * scale - vec2(0.5, 0.5), 0.0, 1.0);
+			})", ShaderStage::Vertex),
+		ShaderStage(R"(#version 330 core
+			out vec4 frag_color;
+			uniform vec4 color;
+			void main() {
+				frag_color = color;
+			})", ShaderStage::Fragment)
+	);
+	line_shader.bind();
+	line_shader.set("scale", 1.2f / width);
+
+	VertexArray line_va;
+	{
+		GLuint indices[] = { 0, 1 };
+		IndexBuffer(indices).leak();
+	}
+	size_t nline = 256;
+	VertexBuffer line_vb(std::span{static_cast<vec4<float>*>(nullptr), nline}, attr2descr{});
+	draw_info<attr2descr> line_info{line_shader, line_va, line_vb, nline};
+
+	window.run([&] {
+		vec4<float> pos[] = {
+			{ -0.5f, -0.5f, +0.5f, -0.5f },
+			{ +0.5f, -0.5f, +0.5f, +0.5f },
+			{ +0.5f, +0.5f, -0.5f, +0.5f },
+			{ -0.5f, +0.5f, -0.5f, -0.5f },
+		};
+		for (size_t ic = 0; ic < clusters.components(); ++ic) {
+			draw_n(info, cluster_pos[ic], colors[ic % std::size(colors)], GL_QUADS);
+		}
+		// draw_n(line_info, pos, vec4<float>(1.0f, 0.7f, 0.8f, 1.0f), GL_LINES);
+
+		for (const auto &ds : draw_settings) {
+			call_draw(ds);
+		}
+
+	}, false);
+
+	auto mesh = buildShapes(clusters, width, height, window, line_info);
+
 	window.run([&] {
 		for (size_t ic = 0; ic < clusters.components(); ++ic) {
-			draw_quads(info, cluster_pos[ic], colors[ic % std::size(colors)]);
+			draw_n(info, cluster_pos[ic], colors[ic % std::size(colors)], GL_QUADS);
 		}
 	});
 
 	stbi_image_free(pixels);
-	delete[] pos;
 }
 

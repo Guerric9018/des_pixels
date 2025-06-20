@@ -75,8 +75,8 @@ struct VertexBuffer : GlBuffer
 		glVertexAttribDivisor(descr::location, descr::instanced);
 	}
 
-	template <buffer_description descr>
-	void update(std::span<typename descr::attrib_type> data, descr, GLintptr offset = 0) const
+	template <typename T>
+	void update(std::span<T> data, GLintptr offset = 0) const
 	{
 		bind(GL_ARRAY_BUFFER);
 		glBufferSubData(GL_ARRAY_BUFFER, offset, data.size_bytes(), data.data());

@@ -36,14 +36,14 @@ struct Window {
 		glfwTerminate();
 	}
 
-	void run(auto fn)
+	void run(auto fn, bool loop = true)
 	{
-		while (!glfwWindowShouldClose(handle)) {
+		do {
 			glClear(GL_COLOR_BUFFER_BIT);
 			glfwPollEvents();
 			fn();
 			glfwSwapBuffers(handle);
-		}
+		} while (loop && !glfwWindowShouldClose(handle));
 	}
 };
 
