@@ -111,17 +111,18 @@ inline vec2<D> operator/(vec2<D> lhs, D div)
 
 struct Clusters
 {
+	using cluster = std::vector<Vertex>;
 private:
 	size_t width;
 	size_t height;
 
-	using cluster = std::vector<Vertex>;
 	std::map<id_t, cluster> cluster2vertex;
 	union_find vertex2cluster;
 
 public:
 	Clusters(size_t width, size_t height, byte *data);
 	id_t repr(size_t id);
+	std::map<id_t, cluster> const &get() const;
 	size_t components() const ;
 	Color average_color(byte *data, id_t clust);
 

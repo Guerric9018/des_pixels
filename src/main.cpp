@@ -154,6 +154,7 @@ struct draw_info
 	Shader &shader;
 	VertexArray &va;
 	VertexBuffer &vb;
+	size_t size;
 };
 
 template <buffer_description descr>
@@ -162,8 +163,14 @@ void draw_quads(draw_info<descr> info, std::span<vec2<float>> data, vec4<float> 
 	info.shader.bind();
 	info.shader.set("color", color);
 	info.va.bind();
-	info.vb.update(data, descr{});
-	glDrawElementsInstanced(GL_TRIANGLES, 6, GL_UNSIGNED_INT, nullptr, data.size());
+	size_t drawn = 0;
+	vec2<float> *at = data.data();
+	for (; data.size() - drawn > info.size; drawn += info.size, at += info.size) {
+		info.vb.update(std::span{at, at+info.size}, descr{});
+		glDrawElementsInstanced(GL_TRIANGLES, 6, GL_UNSIGNED_INT, nullptr, info.size);
+	}
+	info.vb.update(std::span{at, data.size() - drawn}, descr{});
+	glDrawElementsInstanced(GL_TRIANGLES, 6, GL_UNSIGNED_INT, nullptr, data.size() - drawn);
 }
 
 int main(int argc, char **argv)
@@ -193,7 +200,7 @@ int main(int argc, char **argv)
 			})", ShaderStage::Fragment)
 	);
 	shader.bind();
-	shader.set("scale", 0.1f);
+	shader.set("scale", 0.03f);
 
 	struct attr0descr {
 		using element_type = float;
@@ -238,20 +245,38 @@ int main(int argc, char **argv)
 	pos[2] = vec2<float>{ -0.7f, 0.1f };
 	vb_pos.update(std::span{pos, pos+3}, attr1descr{});
 
-	draw_info<attr1descr> info{shader, va, vb_pos};
+	draw_info<attr1descr> info{shader, va, vb_pos, npos};
 
-	vec4<float> qcolor{ 0.8f, 0.1f, 0.4f, 1.0f };
-	window.run([&] {
-		draw_quads(info, std::span{pos, pos+3}, qcolor);
-	});
 	int width, height, channels;
-	stbi_set_flip_vertically_on_load(false);
+	stbi_set_flip_vertically_on_load(true);
 	auto pixels = stbi_load(argv[1], &width, &height, &channels, 0);
 	assert(channels == 3);
 	assert(width > 0 && height > 0);
 
 	Clusters clusters(width, height, pixels);
 	std::cout << "found " << clusters.components() << " clusters\n";
+
+	vec4<float> colors[] = {
+		{ 0.8f, 0.1f, 0.2f, 1.0f },
+		{ 0.6f, 0.7f, 0.1f, 1.0f },
+		{ 0.2f, 0.9f, 0.4f, 1.0f },
+		{ 0.1f, 0.5f, 0.7f, 1.0f },
+		{ 0.2f, 0.1f, 0.8f, 1.0f },
+	};
+	std::vector<std::vector<vec2<float>>> cluster_pos;
+	for (const auto &[_, cluster] : clusters.get()) {
+		cluster_pos.emplace_back(cluster.size());
+		for (const auto &[xy] : cluster) {
+			const auto x = xy % width;
+			const auto y = xy / width;
+			cluster_pos.back().emplace_back(float(x), float(y));
+		}
+	}
+	window.run([&] {
+		for (size_t ic = 0; ic < clusters.components(); ++ic) {
+			draw_quads(info, cluster_pos[ic], colors[ic % std::size(colors)]);
+		}
+	});
 
 	stbi_image_free(pixels);
 	delete[] pos;

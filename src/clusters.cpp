@@ -116,3 +116,8 @@ Color Clusters::average_color(byte *data, id_t clust)
 		static_cast<unsigned char>(totalB / cluster.size())
 	);
 }
+
+std::map<id_t, Clusters::cluster> const &Clusters::get() const
+{
+	return cluster2vertex;
+}
