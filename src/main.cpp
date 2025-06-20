@@ -152,32 +152,45 @@ Mesh buildShapes(Clusters& clusters, size_t width, size_t height, Window &window
 		}
 	}
 
-	window.run([&] {
-		std::vector<vec4<float>> lines;
-		for (const auto &[s, neighbrs] : edges) {
-			for (const auto t : neighbrs) {
-				const auto start = nodes[s];
-				const auto end   = nodes[t];
-				lines.push_back(vec4<float>(start.x, start.y, end.x, end.y));
-			}
+	std::vector<vec4<float>> lines;
+	for (const auto &[s, neighbrs] : edges) {
+		for (const auto t : neighbrs) {
+			const auto start = nodes[s];
+			const auto end   = nodes[t];
+			lines.push_back(vec4<float>(start.x, start.y, end.x, end.y));
 		}
+	}
+	window.run([&] {
 		draw_settings.resize(clusters.components());
 		draw_n(line_info, lines, vec4<float>(0.8f, 0.9f, 0.8f, 1.0f), GL_LINES);
 		for (const auto &ds : draw_settings) {
 			call_draw(ds);
 		}
-	});
+	}, false);
 
 	union_find node_map(nodes.size());
 	static const float epsilon = std::pow(0.5f / float(ARITY + 1), 2);
+	// static const float epsilon = 1e-6;
 	// edge nodes
+	std::vector<vec4<float>> links;
 	for (size_t en1 = 0; en1 < edge_node_end; ++en1) {
 		for (size_t en2 = en1 + 1; en2 < edge_node_end; ++en2) {
 			if (dist2(nodes[en1], nodes[en2]) < epsilon) {
 				node_map.unite(en1, en2);
+				const auto start = nodes[en1];
+				const auto end   = nodes[en2];
+				links.push_back(vec4<float>{start.x, start.y, end.x, end.y});
 			}
 		}
 	}
+
+	auto reset = draw_settings.size();
+	window.run([&] {
+		draw_settings.resize(reset);
+		draw_n(line_info, links, vec4<float>(0.7f, 0.0f, 0.9f, 1.0f), GL_LINES);
+		for (const auto &ds: draw_settings)
+			call_draw(ds);
+	});
 
 	assert(nodes.size() - edge_node_max == 2*corners.size());
 	// corner nodes
