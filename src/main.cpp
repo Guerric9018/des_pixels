@@ -117,10 +117,10 @@ Mesh buildShapes(Clusters& clusters, size_t width, size_t height, Window &window
 	};
 
 	offset_t offset[] = {
-		{ { 0, size_t(-1) }, { +0.5f, -0.5f } },
-		{ { size_t(-1), 0 }, { -0.5f, -0.5f } },
-		{ { 0, size_t(+1) }, { -0.5f, +0.5f } },
-		{ { size_t(+1), 0 }, { +0.5f, +0.5f } },
+		{ { 0, size_t(-1) }, { +1.0f,  0.0f } },
+		{ { size_t(-1), 0 }, {  0.0f,  0.0f } },
+		{ { 0, size_t(+1) }, {  0.0f, +1.0f } },
+		{ { size_t(+1), 0 }, { +1.0f, +1.0f } },
 	};
 
 	for (size_t y = 1; y < height - 1; ++y) {
@@ -313,13 +313,13 @@ int main(int argc, char **argv)
 	{
 		vec2<float> vertices[] = {
 			{ 0.0f, 0.0f },
-			{ 0.0f,-1.0f },
-			{ 1.0f,-1.0f },
+			{ 0.0f,+1.0f },
 			{ 1.0f, 0.0f },
+			{ 1.0f,+1.0f },
 		};
 		GLuint indices[] = {
 			0, 1, 2,
-			2, 3, 0,
+			2, 1, 3,
 		};
 		VertexBuffer(vertices, attr0descr{}).leak();
 		IndexBuffer(indices).leak();
