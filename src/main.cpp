@@ -190,7 +190,7 @@ Mesh buildShapes(Clusters& clusters, size_t width, size_t height, Window &window
 		draw_n(line_info, links, vec4<float>(0.7f, 0.0f, 0.9f, 1.0f), GL_LINES);
 		for (const auto &ds: draw_settings)
 			call_draw(ds);
-	});
+	}, false);
 
 	assert(nodes.size() - edge_node_max == 2*corners.size());
 	// corner nodes
@@ -237,8 +237,18 @@ Mesh buildShapes(Clusters& clusters, size_t width, size_t height, Window &window
 			}
 			// merge
 			node_map.unite(cn1, cn2);
+			const auto start = nodes[cn1];
+			const auto end   = nodes[cn2];
+			links.push_back(vec4<float>{start.x, start.y, end.x, end.y});
 		}
 	}
+
+	window.run([&] {
+		draw_settings.resize(reset);
+		draw_n(line_info, links, vec4<float>(0.1f, 0.8f, 0.9f, 1.0f), GL_LINES);
+		for (const auto &ds: draw_settings)
+			call_draw(ds);
+	}, true);
 
 	std::map<id_t, id_t> compress;
 	for (id_t i = 0; i < node_map.data.size(); ++i) {
