@@ -84,7 +84,7 @@ struct vec2
 	D &operator[](size_t i) { return (&x)[i]; }
 	const D &operator[](size_t i) const { return (&x)[i]; }
 	D length() const {
-        return static_cast<D>(std::sqrt(x * x + y * y));
+        return static_cast<D>(sqrt(x * x + y * y));
     }
 };
 
