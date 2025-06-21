@@ -124,10 +124,10 @@ Mesh buildShapes(Clusters& clusters, size_t width, size_t height, Window &window
 	};
 
 	offset_t offset[] = {
-		{ { 0, size_t(+1) }, { +1.0f,  +1.0f } },
-		{ { size_t(-1), 0 }, {  0.0f,  +1.0f } },
-		{ { 0, size_t(-1) }, {  0.0f,  0.0f } },
-		{ { size_t(+1), 0 }, { +1.0f,  0.0f } },
+		{ { 0, size_t(-1) }, { +1.0f,  0.0f } },
+		{ { size_t(-1), 0 }, {  0.0f,  0.0f } },
+		{ { 0, size_t(+1) }, {  0.0f, +1.0f } },
+		{ { size_t(+1), 0 }, { +1.0f, +1.0f } },
 	};
 
 	for (size_t y = 0; y < height; ++y) {
@@ -246,11 +246,11 @@ Mesh buildShapes(Clusters& clusters, size_t width, size_t height, Window &window
 
 			if (current == diag && current != counter1 && current != counter2) {
 				static const std::uint8_t can_fuse = 0b10010110;
-				if ((can_fuse & bit(o1 << 1 | is_end_1) & bit(o2 << 1 | is_end_2)) == 0)
+				if (((can_fuse & bit(o1<<1|is_end_1)) | (can_fuse & bit(o2<<1|is_end_2))) == 0)
 					continue;
 			} else if (counter1 == counter2 && current != counter1 && diag != counter1) {
 				static const std::uint8_t can_fuse = 0b01011010;
-				if ((can_fuse & bit(o1 << 1 | is_end_1) & bit(o2 << 1 | is_end_2)) == 0)
+				if (((can_fuse & bit(o1<<1|is_end_1)) | (can_fuse & bit(o2<<1|is_end_2))) == 0)
 					continue;
 			}
 			// merge
@@ -325,7 +325,7 @@ Mesh buildShapes(Clusters& clusters, size_t width, size_t height, Window &window
 		draw_n(line_info, lines, vec4<float>(1.0f, 1.0f, 1.0f, 1.0f), GL_LINES);
 		for (const auto &ds: draw_settings)
 			call_draw(ds);
-	}, false);
+	}, true);
 
 	return Mesh{ std::move(compressed_nodes), std::move(compressed_edges), std::move(compressed_node_cluster_ids) };
 }
@@ -608,6 +608,7 @@ int main(int argc, char **argv)
 			uniform float inner_scale;
 			void main() {
 				vec2 pos = (attr_pos * inner_scale + inst_pos) * scale;
+				pos.y = 1.0 - pos.y;
 				gl_Position = vec4(pos - vec2(0.5, 0.5), 0.0, 1.0);
 			})", ShaderStage::Vertex),
 		ShaderStage(
@@ -667,7 +668,7 @@ int main(int argc, char **argv)
 	draw_info<attr1descr> info{shader, va, vb_pos, npos};
 
 	int width, height, channels;
-	stbi_set_flip_vertically_on_load(true);
+	stbi_set_flip_vertically_on_load(false);
 	auto pixels = stbi_load(argv[1], &width, &height, &channels, 0);
 	assert(channels == 3);
 	assert(width > 0 && height > 0);
@@ -704,7 +705,9 @@ int main(int argc, char **argv)
 				if ((gl_VertexID & 1) == 1) {
 					pos = inst_endpoints.zw;
 				}
-				gl_Position = vec4(pos * scale - vec2(0.5, 0.5), 0.0, 1.0);
+				pos = pos * scale;
+				pos.y = 1.0 - pos.y;
+				gl_Position = vec4(pos - vec2(0.5, 0.5), 0.0, 1.0);
 			})", ShaderStage::Vertex),
 		ShaderStage(R"(#version 330 core
 			out vec4 frag_color;
