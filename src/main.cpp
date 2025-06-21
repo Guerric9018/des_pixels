@@ -107,9 +107,20 @@ Mesh buildShapes(Clusters& clusters, size_t width, size_t height, Window &window
 	size_t edge_node_end = 0;
 	const size_t edge_node_max = 4*ARITY*width*height;
 	std::vector<vec2<float>> nodes(edge_node_max);
-    std::vector<MaskT> node_cluster_ids(edge_node_max, 0); 
+	std::vector<MaskT> node_cluster_ids(edge_node_max, 0); 
 	// edge between s and t and max(s,t) in edges[min(s,t)]
 	std::map<size_t, std::vector<size_t>> edges;
+
+	std::map<id_t, size_t> cluster_to_compact;
+	size_t cluster_compact_id = 0;
+	for (const auto &[cluster_id, _] : clusters.get()) {
+		cluster_to_compact[cluster_id] = cluster_compact_id++;
+	}
+
+	if (cluster_compact_id > 63) {
+		std::cerr << "Error. Too many colors" << std::endl;
+		std::exit(EXIT_FAILURE);
+	}
 
 	struct choice {
 		size_t x;
@@ -147,13 +158,13 @@ Mesh buildShapes(Clusters& clusters, size_t width, size_t height, Window &window
 					if (edge_node < ARITY-1) {
 						edges[edge_node_end].push_back(edge_node_end+1);
 					}
-                    node_cluster_ids[edge_node_end] |= (1ULL << current);
+					node_cluster_ids[edge_node_end] |= (1ULL << cluster_to_compact[current]);
 					nodes[edge_node_end++] = lerp(start, end, t);
 				}
 				nodes.emplace_back(start);
 				nodes.emplace_back(end  );
-				node_cluster_ids.emplace_back(1ULL << current);
-                node_cluster_ids.emplace_back(1ULL << current);
+				node_cluster_ids.emplace_back(1ULL << cluster_to_compact[current]);
+				node_cluster_ids.emplace_back(1ULL << cluster_to_compact[current]);
 				edges[edge_node_end-ARITY].push_back(nodes.size()-2);
 				edges[edge_node_end-1    ].push_back(nodes.size()-1);
 				corners.push_back(choice{ x, y, o });
