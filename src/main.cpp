@@ -9,6 +9,7 @@
 #include <set>
 #include <unordered_set>
 #include <algorithm>
+#include <deque>
 #include <cstdint>
 #include <thread>
 #include <chrono>
@@ -274,6 +275,49 @@ Mesh buildShapes(Clusters& clusters, size_t width, size_t height, Render &rdr, R
 	}
 
 	return Mesh{ std::move(compressed_nodes), std::move(compressed_edges), std::move(compressed_node_cluster_ids) };
+}
+
+using Polygon = std::vector<size_t>;
+using Polygons = std::map<id_t, Polygon>;
+
+Polygons clusterBoundaries(Mesh const &mesh)
+{
+	assert(mesh.vert.size() <= mesh.edge.size());
+	Polygons poly;
+	using stack = std::deque<size_t>;
+	stack dfs;
+	dfs.push_back(0);
+	std::set<size_t> unseen;
+	for (size_t seed = 0; seed < mesh.vert.size(); ++seed) {
+		unseen.emplace(seed);
+	}
+	while (!unseen.empty()) {
+		const auto seed = *unseen.begin();
+		dfs.push_back(seed);
+		while (!dfs.empty()) {
+			const auto s = dfs.back();
+			dfs.pop_back();
+			if (!unseen.contains(s))
+				continue;
+			unseen.erase(s);
+			for (const auto [t, c1, c2] : mesh.edge[s]) {
+				dfs.push_back(t);
+				auto &p1 = poly[c1];
+				auto &p2 = poly[c2];
+
+				if (p1.empty()) {
+					p1.push_back(s);
+				}
+				p1.push_back(t);
+
+				if (p2.empty()) {
+					p2.push_back(s);
+				}
+				p2.push_back(t);
+			}
+		}
+	}
+	return poly;
 }
 
 float calculateSignedPolygonArea(const std::vector<vec2<float>>& polygon_vertices)
@@ -706,6 +750,7 @@ int main(int argc, char **argv)
 	rdr.keep();
 
 	auto mesh = buildShapes(clusters, width, height, rdr, line_info);
+	auto polys = clusterBoundaries(mesh);
 	applyForces(mesh, rdr, line_info);
 
 	stbi_image_free(pixels);
