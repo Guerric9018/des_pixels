@@ -483,7 +483,11 @@ void applyForces(Mesh& mesh, Render &rdr, Render::draw_context<D> const &line_in
 			}
 		}
 		rdr.removeAll();
-		while (rdr.clear() && stay_visible) {
+		rdr.clear();
+		rdr.submit(line_info, lines, vec4<float>(1.0f, 0.7f, 0.8f, 1.0f), GL_LINES);
+		rdr.draw();
+		while (rdr.clear() && stay_visible)
+		{
 			rdr.submit(line_info, lines, vec4<float>(1.0f, 0.7f, 0.8f, 1.0f), GL_LINES);
 			rdr.draw();
 		}
