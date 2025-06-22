@@ -195,13 +195,13 @@ Mesh buildShapes(Clusters& clusters, size_t width, size_t height, Render &rdr, R
 				static const auto side = 0b01011010;
 				const auto side1 = side >> (o1<<1|is_end_1);
 				const auto side2 = side >> (o2<<1|is_end_2);
-				if ((side1 & 1) == (side2 & 1))
+				if ((side1 & 1) != (side2 & 1))
 					continue;
-			} else if (cntr1 == cntr2 && cntr1 != main1 && cntr1 && main2) {
+			} else if (cntr1 == cntr2 && cntr1 != main1 && cntr1 != main2) {
 				static const auto side = 0b10010110;
 				const auto side1 = side >> (o1<<1|is_end_1);
 				const auto side2 = side >> (o2<<1|is_end_2);
-				if ((side1 & 1) == (side2 & 1))
+				if ((side1 & 1) != (side2 & 1))
 					continue;
 			}
 			// merge
@@ -524,7 +524,7 @@ void applyForces(Mesh& mesh, Render &rdr, Render::draw_context<D> const &line_in
 		if (it % 1000 == 0)
 			draw_current_state(vert, false);
 
-		std::this_thread::sleep_for(std::chrono::milliseconds(1));
+		// std::this_thread::sleep_for(std::chrono::milliseconds(1));
 	}
 
 	std::cout << "Done applying forces (threshold reached)" << std::endl;
