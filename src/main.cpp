@@ -320,6 +320,24 @@ Polygons clusterBoundaries(Mesh const &mesh)
 	return poly;
 }
 
+bool isInside(const std::vector<vec2<float>>& polygon1, const std::vector<vec2<float>>& polygon2) {
+    int intersections = 0;
+	vec2<float> point = polygon1[0];
+    for (size_t i = 0; i < polygon2.size(); ++i) {
+        vec2<float> p1 = polygon2[i];
+        vec2<float> p2 = polygon2[(i + 1) % polygon2.size()];
+
+        if (p1.y == p2.y) continue;
+        if (point.y < std::min(p1.y, p2.y) || point.y >= std::max(p1.y, p2.y)) continue;
+
+        float x_intersection = (point.y - p1.y) * (p2.x - p1.x) / (p2.y - p1.y) + p1.x;
+        if (x_intersection > point.x) {
+            intersections++;
+        }
+    }
+    return (intersections % 2) == 1;
+}
+
 float calculateSignedPolygonArea(const std::vector<vec2<float>>& polygon_vertices)
 {
     if (polygon_vertices.size() < 3) {
@@ -358,14 +376,23 @@ std::pair<std::unordered_map<id_t, float>, std::unordered_map<id_t, vec2<float>>
 
 	using EdgeSet = std::unordered_set<Edge, EdgeHash>;
 
+	struct Polygon {
+        std::vector<vec2<float>> vertices;
+        float signed_area;
+		int containment_level = 0;
+    };
+	std::unordered_map<id_t, std::vector<Polygon>> cluster_polygons;
 
 	std::unordered_map<id_t, float> cluster_total_areas;
 	#pragma omp parallel for
 	for (int i = 0; i < cluster_internal_graphs_vector.size(); ++i) {
+
 		auto pair_cluster = cluster_internal_graphs_vector[i];
 		id_t cluster_id = pair_cluster.first;
         const std::unordered_map<size_t, std::vector<size_t>>& cluster_graph = pair_cluster.second;
         EdgeSet visited_edges_in_cluster;
+		std::vector<Polygon> found_polygons;
+
         for (size_t start_node_idx : cluster_nodes.at(cluster_id)) {
             if (cluster_graph.find(start_node_idx) == cluster_graph.end()) {
                 continue;
@@ -446,14 +473,43 @@ std::pair<std::unordered_map<id_t, float>, std::unordered_map<id_t, vec2<float>>
                 }
 
                 if (cycle_found && polygon_vertices.size() >= 3) {
-                    cluster_total_areas[cluster_id] += std::abs(calculateSignedPolygonArea(polygon_vertices));
+                    Polygon p;
+                    p.vertices = polygon_vertices;
+                    p.signed_area = calculateSignedPolygonArea(p.vertices);
+                    found_polygons.push_back(p);
                 }
             }
         }
+
+		#pragma omp critical
+        {
+             cluster_polygons[cluster_id].insert(cluster_polygons[cluster_id].end(), found_polygons.begin(), found_polygons.end());
+        }
     }
 
-    for (const auto& [cluster_id, area] : cluster_total_areas) {
-        cluster_total_areas[cluster_id] = std::abs(area);
+    for (auto& [cluster_id, polygons] : cluster_polygons) {
+        
+        for (size_t i = 0; i < polygons.size(); ++i) {
+            for (size_t j = 0; j < polygons.size(); ++j) {
+                if (i == j) continue;
+
+                if (std::abs(polygons[j].signed_area) > std::abs(polygons[i].signed_area)) {
+                    if (isInside(polygons[i].vertices, polygons[j].vertices)) {
+                        polygons[i].containment_level++;
+                    }
+                }
+            }
+        }
+
+        float net_area = 0.0f;
+        for (const auto& p : polygons) {
+            if (p.containment_level % 2 == 1) {
+                net_area -= std::abs(p.signed_area);
+            } else {
+                net_area += std::abs(p.signed_area);
+            }
+        }
+        cluster_total_areas[cluster_id] = net_area;
     }
 
 	std::unordered_map<id_t, vec2<float>> cluster_centers;
@@ -594,10 +650,6 @@ void applyForces(Mesh& mesh, Render &rdr, Render::draw_context<D> const &line_in
 
 		if (it % 1000 == 0) {
 			draw_current_state(vert, false);
-			std::cout << "Cluster areas at iteration:\n";
-			for (const auto& [cid, area] : areas) {
-				std::cout << "  Cluster " << cid << ": " << area << "\n";
-			}
 		}
 	}
 
