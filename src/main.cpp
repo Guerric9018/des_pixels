@@ -7,6 +7,7 @@
 #include <map>
 #include <set>
 #include <algorithm>
+#include <deque>
 #include <cstdint>
 #include <thread>
 #include <chrono>
@@ -291,6 +292,73 @@ Mesh buildShapes(Clusters& clusters, size_t width, size_t height, Render &rdr, R
 	}
 
 	return Mesh{ std::move(compressed_nodes), std::move(compressed_edges), std::move(compressed_node_cluster_ids) };
+}
+
+using Polygon = std::vector<size_t>;
+struct Boundary {
+	Polygon outer;
+	std::set<id_t> adj; // clusters that have a boundary in common
+};
+using BoundaryGraph = std::map<id_t, Boundary>;
+
+BoundaryGraph clusterBoundaries(Mesh const &mesh)
+{
+	assert(mesh.vert.size() <= mesh.edge.size());
+	BoundaryGraph bnd;
+	using stack = std::deque<size_t>;
+	stack dfs;
+	dfs.push_back(0);
+	std::set<size_t> unseen;
+	for (size_t seed = 0; seed < mesh.vert.size(); ++seed) {
+		unseen.emplace(seed);
+	}
+	while (!unseen.empty()) {
+		const auto seed = *unseen.begin();
+		dfs.push_back(seed);
+		while (!dfs.empty()) {
+			const auto s = dfs.back();
+			dfs.pop_back();
+			if (!unseen.contains(s))
+				continue;
+			unseen.erase(s);
+			for (const auto [t, c1, c2] : mesh.edge[s]) {
+				dfs.push_back(t);
+				auto &p1 = bnd[c1];
+				auto &p2 = bnd[c2];
+
+				if (p1.outer.empty()) {
+					p1.outer.push_back(s);
+				}
+				p1.outer.push_back(t);
+				p1.adj.emplace(c2);
+
+				if (p2.outer.empty()) {
+					p2.outer.push_back(s);
+				}
+				p2.outer.push_back(t);
+				p2.adj.emplace(c1);
+			}
+		}
+	}
+	return bnd;
+}
+
+bool isInside(const std::vector<vec2<float>>& polygon1, const std::vector<vec2<float>>& polygon2) {
+    int intersections = 0;
+	vec2<float> point = polygon1[0];
+    for (size_t i = 0; i < polygon2.size(); ++i) {
+        vec2<float> p1 = polygon2[i];
+        vec2<float> p2 = polygon2[(i + 1) % polygon2.size()];
+
+        if (p1.y == p2.y) continue;
+        if (point.y < std::min(p1.y, p2.y) || point.y >= std::max(p1.y, p2.y)) continue;
+
+        float x_intersection = (point.y - p1.y) * (p2.x - p1.x) / (p2.y - p1.y) + p1.x;
+        if (x_intersection > point.x) {
+            intersections++;
+        }
+    }
+    return (intersections % 2) == 1;
 }
 
 float calculateSignedPolygonArea(const std::vector<vec2<float>>& polygon_vertices)
