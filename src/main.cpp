@@ -674,7 +674,6 @@ void applyForces(Mesh& mesh, Render &rdr, Render::draw_context<D> const &line_in
 			}
 			if (force.length() > max_force)
 				max_force = force.length();
-				max_force = force.length();
 
 			vert[u] = vert[u] + force * eta;
 		}
