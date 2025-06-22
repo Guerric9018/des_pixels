@@ -30,10 +30,22 @@ float dist2(vec2<float> a, vec2<float> b)
 }
 
 struct Mesh {
+	struct EdgeEnd {
+		size_t endpoint;
+		id_t clust1;
+		id_t clust2;
+
+	};
+
 	std::vector<vec2<float>> vert;
-	std::vector<std::vector<size_t>> edge;
+	std::vector<std::vector<EdgeEnd>> edge;
 	std::vector<MaskT> node_cluster_ids;
 };
+
+static auto operator<=>(Mesh::EdgeEnd const &l, Mesh::EdgeEnd const &r)
+{
+	return l.endpoint <=> r.endpoint;
+}
 
 size_t bit(size_t b)
 {
@@ -51,7 +63,7 @@ Mesh buildShapes(Clusters& clusters, size_t width, size_t height, Render &rdr, R
 	std::vector<vec2<float>> nodes(edge_node_max);
 	std::vector<MaskT> node_cluster_ids(edge_node_max, 0); 
 	// edge between s and t and max(s,t) in edges[min(s,t)]
-	std::map<size_t, std::vector<size_t>> edges;
+	std::map<size_t, std::vector<Mesh::EdgeEnd>> edges;
 
 	std::map<id_t, size_t> cluster_to_compact;
 	size_t cluster_compact_id = 0;
@@ -98,7 +110,7 @@ Mesh buildShapes(Clusters& clusters, size_t width, size_t height, Render &rdr, R
 				for (size_t edge_node = 0; edge_node < ARITY; ++edge_node) {
 					const float t = float(edge_node+1) / float(ARITY+1);
 					if (edge_node < ARITY-1) {
-						edges[edge_node_end].push_back(edge_node_end+1);
+						edges[edge_node_end].emplace_back(edge_node_end+1, current, neighbr);
 					}
 					node_cluster_ids[edge_node_end] |= (1ULL << cluster_to_compact[current]);
 					nodes[edge_node_end++] = lerp(start, end, t);
@@ -107,8 +119,8 @@ Mesh buildShapes(Clusters& clusters, size_t width, size_t height, Render &rdr, R
 				nodes.emplace_back(end  );
 				node_cluster_ids.emplace_back(1ULL << cluster_to_compact[current]);
 				node_cluster_ids.emplace_back(1ULL << cluster_to_compact[current]);
-				edges[edge_node_end-ARITY].push_back(nodes.size()-2);
-				edges[edge_node_end-1    ].push_back(nodes.size()-1);
+				edges[edge_node_end-ARITY].emplace_back(nodes.size()-2, current, neighbr);
+				edges[edge_node_end-1    ].emplace_back(nodes.size()-1, current, neighbr);
 				corners.push_back(choice{ x, y, o });
 			}
 		}
@@ -116,7 +128,7 @@ Mesh buildShapes(Clusters& clusters, size_t width, size_t height, Render &rdr, R
 
 	std::vector<vec4<float>> lines;
 	for (const auto &[s, neighbrs] : edges) {
-		for (const auto t : neighbrs) {
+		for (const auto [t, c1, c2] : neighbrs) {
 			const auto start = nodes[s];
 			const auto end   = nodes[t];
 			lines.push_back(vec4<float>(start.x, start.y, end.x, end.y));
@@ -224,25 +236,32 @@ Mesh buildShapes(Clusters& clusters, size_t width, size_t height, Render &rdr, R
 	rdr.draw();
 
 	std::map<id_t, id_t> compress;
-	for (id_t i = 0; i < node_map.data.size(); ++i) {
+	for (id_t i = 0; i < edge_node_end; ++i) {
+		compress.try_emplace(node_map.find(i), compress.size());
+	}
+	for (id_t i = edge_node_max; i < nodes.size(); ++i) {
 		compress.try_emplace(node_map.find(i), compress.size());
 	}
 
 	lines.clear();
 	std::vector<vec2<float>> compressed_nodes(compress.size());
 	std::vector<MaskT> compressed_node_cluster_ids(compress.size());
-	std::map<size_t, std::set<size_t>> remapped_edges;
+	std::map<size_t, std::set<Mesh::EdgeEnd>> remapped_edges;
 	for (const auto [orig, mapped] : compress) {
 		compressed_nodes[mapped] = nodes[orig];
 		compressed_node_cluster_ids[mapped] = node_cluster_ids[orig];
 	}
-	for (const auto [orig, mapped] : compress) {
-		for (const auto neighbr : edges[orig]) {
+	for (size_t orig = 0; orig < nodes.size(); ++orig) {
+		if (orig >= edge_node_end && orig < edge_node_max)
+			continue;
+		const auto mapped = compress.find(node_map.find(orig));
+		assert(mapped != compress.end());
+		for (const auto [neighbr, c1, c2] : edges[orig]) {
 			const auto mapped_neighbr = compress.find(node_map.find(neighbr));
 			assert(mapped_neighbr != compress.end());
-			const auto [min, max] = std::minmax(mapped, mapped_neighbr->second);
+			const auto [min, max] = std::minmax(mapped->second, mapped_neighbr->second);
 			assert(min != max);
-			remapped_edges[min].emplace(max);
+			remapped_edges[min].emplace(max, c1, c2);
 			const auto start = compressed_nodes[min];
 			const auto end   = compressed_nodes[max];
 			lines.push_back(vec4<float>(start.x, start.y, end.x, end.y));
@@ -254,10 +273,11 @@ Mesh buildShapes(Clusters& clusters, size_t width, size_t height, Render &rdr, R
 	rdr.draw();
 
 	lines.clear();
-	std::vector<std::vector<size_t>> compressed_edges(remapped_edges.size());
+	std::vector<std::vector<Mesh::EdgeEnd>> compressed_edges(compressed_nodes.size());
 	for (const auto &[s, neighbrs] : remapped_edges) {
-		for (const auto t : neighbrs) {
-			compressed_edges[s].push_back(t);
+		for (const auto [t, c1, c2] : neighbrs) {
+			compressed_edges[s].emplace_back(t, c1, c2);
+			compressed_edges[t].emplace_back(s, c1, c2);
 			const auto start = compressed_nodes[s];
 			const auto end   = compressed_nodes[t];
 			lines.push_back(vec4<float>(start.x, start.y, end.x, end.y));
@@ -411,7 +431,12 @@ template <buffer_description D>
 void applyForces(Mesh& mesh, Render &rdr, Render::draw_context<D> const &line_info)
 {
 	std::vector<vec2<float>> vert         = mesh.vert;
-    std::vector<std::vector<size_t>> edge = mesh.edge;
+    std::vector<std::vector<size_t>> edge(mesh.edge.size());
+    for (size_t s = 0; s < mesh.edge.size(); ++s) {
+	    for (const auto [t, c1, c2] : mesh.edge[s]) {
+		    edge[s].emplace_back(t);
+	    }
+    }
 	std::vector<MaskT> node_cluster_ids   = mesh.node_cluster_ids;
 	const size_t n_nodes                  = node_cluster_ids.size();
 
