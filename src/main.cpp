@@ -163,38 +163,45 @@ Mesh buildShapes(Clusters& clusters, size_t width, size_t height, Render &rdr, R
 			const auto [x, y, o1] = corners[(cn1 - edge_node_max) / 2];
 			const auto is_end_2   = (cn2 - edge_node_max) % 2;
 			const auto o2         = corners[(cn2 - edge_node_max) / 2].dir;
-			id_t current, counter1, counter2, diag;
-			current = clusters.repr(index(x, y));
+			id_t main1, main2, cntr1, cntr2;
 			switch ((is_end_1 + o1) % 4) {
-				case 0:
-					counter1 = clusters.repr(index(x  , y-1));
-					counter2 = clusters.repr(index(x+1, y  ));
-					diag = clusters.repr(index(x+1, y-1));
-					break;
-				case 1:
-					counter1 = clusters.repr(index(x  , y-1));
-					counter2 = clusters.repr(index(x-1, y  ));
-					diag = clusters.repr(index(x-1, y-1));
-					break;
-				case 2:
-					counter1 = clusters.repr(index(x-1, y  ));
-					counter2 = clusters.repr(index(x  , y+1));
-					diag = clusters.repr(index(x-1, y+1));
-					break;
-				case 3:
-					counter1 = clusters.repr(index(x+1, y  ));
-					counter2 = clusters.repr(index(x  , y+1));
-					diag = clusters.repr(index(x+1, y+1));
-					break;
+			case 0:
+				main1 = clusters.repr(index(x  ,y-1));
+				main2 = clusters.repr(index(x+1,y  ));
+				cntr1 = clusters.repr(index(x+1,y-1));
+				cntr2 = clusters.repr(index(x  ,y  ));
+				break;
+			case 1:
+				main1 = clusters.repr(index(x-1,y-1));
+				main2 = clusters.repr(index(x  ,y  ));
+				cntr1 = clusters.repr(index(x  ,y-1));
+				cntr2 = clusters.repr(index(x-1,y  ));
+				break;
+			case 2:
+				main1 = clusters.repr(index(x-1,y  ));
+				main2 = clusters.repr(index(x  ,y+1));
+				cntr1 = clusters.repr(index(x  ,y  ));
+				cntr2 = clusters.repr(index(x-1,y+1));
+				break;
+			case 3:
+				main1 = clusters.repr(index(x  ,y  ));
+				main2 = clusters.repr(index(x+1,y+1));
+				cntr1 = clusters.repr(index(x+1,y  ));
+				cntr2 = clusters.repr(index(x  ,y+1));
+				break;
 			}
 
-			if (current == diag && current != counter1 && current != counter2) {
-				static const std::uint8_t can_fuse = 0b10010110;
-				if (((can_fuse & bit(o1<<1|is_end_1)) | (can_fuse & bit(o2<<1|is_end_2))) == 0)
+			if (main1 == main2 && main1 != cntr1 && main1 != cntr2) {
+				static const auto side = 0b01011010;
+				const auto side1 = side >> (o1<<1|is_end_1);
+				const auto side2 = side >> (o2<<1|is_end_2);
+				if ((side1 & 1) == (side2 & 1))
 					continue;
-			} else if (counter1 == counter2 && current != counter1 && diag != counter1) {
-				static const std::uint8_t can_fuse = 0b01011010;
-				if (((can_fuse & bit(o1<<1|is_end_1)) | (can_fuse & bit(o2<<1|is_end_2))) == 0)
+			} else if (cntr1 == cntr2 && cntr1 != main1 && cntr1 && main2) {
+				static const auto side = 0b10010110;
+				const auto side1 = side >> (o1<<1|is_end_1);
+				const auto side2 = side >> (o2<<1|is_end_2);
+				if ((side1 & 1) == (side2 & 1))
 					continue;
 			}
 			// merge
