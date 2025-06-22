@@ -83,6 +83,9 @@ struct vec2
 	vec2(D x, D y) : x(x), y(y) {}
 	D &operator[](size_t i) { return (&x)[i]; }
 	const D &operator[](size_t i) const { return (&x)[i]; }
+	D length() const {
+        return static_cast<D>(sqrt(x * x + y * y));
+    }
 };
 
 template <typename D>

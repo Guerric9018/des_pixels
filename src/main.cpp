@@ -1,17 +1,22 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 #include <iostream>
+#include <format>
 #include <cassert>
 #include <vector>
 #include <map>
 #include <set>
 #include <algorithm>
 #include <cstdint>
+#include <thread>
+#include <chrono>
 #include "data.hpp"
 #include "gfx.hpp"
 #include "gfx/shader.hpp"
 #include "gfx/buffer.hpp"
 #include "gfx/render.hpp"
+
+using MaskT = uint64_t; 
 
 vec2<float> lerp(vec2<float> a, vec2<float> b, float t)
 {
@@ -27,6 +32,7 @@ float dist2(vec2<float> a, vec2<float> b)
 struct Mesh {
 	std::vector<vec2<float>> vert;
 	std::vector<std::vector<size_t>> edge;
+	std::vector<MaskT> node_cluster_ids;
 };
 
 size_t bit(size_t b)
@@ -43,8 +49,20 @@ Mesh buildShapes(Clusters& clusters, size_t width, size_t height, Render &rdr, R
 	size_t edge_node_end = 0;
 	const size_t edge_node_max = 4*ARITY*width*height;
 	std::vector<vec2<float>> nodes(edge_node_max);
+	std::vector<MaskT> node_cluster_ids(edge_node_max, 0); 
 	// edge between s and t and max(s,t) in edges[min(s,t)]
 	std::map<size_t, std::vector<size_t>> edges;
+
+	std::map<id_t, size_t> cluster_to_compact;
+	size_t cluster_compact_id = 0;
+	for (const auto &[cluster_id, _] : clusters.get()) {
+		cluster_to_compact[cluster_id] = cluster_compact_id++;
+	}
+
+	if (cluster_compact_id > 63) {
+		std::cerr << "Error. Too many colors" << std::endl;
+		std::exit(EXIT_FAILURE);
+	}
 
 	struct choice {
 		size_t x;
@@ -82,10 +100,13 @@ Mesh buildShapes(Clusters& clusters, size_t width, size_t height, Render &rdr, R
 					if (edge_node < ARITY-1) {
 						edges[edge_node_end].push_back(edge_node_end+1);
 					}
+					node_cluster_ids[edge_node_end] |= (1ULL << cluster_to_compact[current]);
 					nodes[edge_node_end++] = lerp(start, end, t);
 				}
 				nodes.emplace_back(start);
 				nodes.emplace_back(end  );
+				node_cluster_ids.emplace_back(1ULL << cluster_to_compact[current]);
+				node_cluster_ids.emplace_back(1ULL << cluster_to_compact[current]);
 				edges[edge_node_end-ARITY].push_back(nodes.size()-2);
 				edges[edge_node_end-1    ].push_back(nodes.size()-1);
 				corners.push_back(choice{ x, y, o });
@@ -112,10 +133,18 @@ Mesh buildShapes(Clusters& clusters, size_t width, size_t height, Render &rdr, R
 	for (size_t en1 = 0; en1 < edge_node_end; ++en1) {
 		for (size_t en2 = en1 + 1; en2 < edge_node_end; ++en2) {
 			if (dist2(nodes[en1], nodes[en2]) < epsilon) {
-				node_map.unite(en1, en2);
-				const auto start = nodes[en1];
-				const auto end   = nodes[en2];
-				links.push_back(vec4<float>{start.x, start.y, end.x, end.y});
+				size_t root1 = node_map.find(en1);
+                size_t root2 = node_map.find(en2);
+				if (root1 != root2) {
+					node_map.unite(en1, en2);
+					size_t new_root = node_map.find(root1);
+
+					node_cluster_ids[new_root] |= node_cluster_ids[root1] | node_cluster_ids[root2];
+
+					const auto start = nodes[en1];
+					const auto end   = nodes[en2];
+					links.push_back(vec4<float>{start.x, start.y, end.x, end.y});
+				}
 			}
 		}
 	}
@@ -158,20 +187,29 @@ Mesh buildShapes(Clusters& clusters, size_t width, size_t height, Render &rdr, R
 					diag = clusters.repr(index(x+1, y+1));
 					break;
 			}
+
 			if (current == diag && current != counter1 && current != counter2) {
 				static const std::uint8_t can_fuse = 0b10010110;
-				if ((can_fuse & bit(o1 << 1 | is_end_1) & bit(o2 << 1 | is_end_2)) == 0)
+				if (((can_fuse & bit(o1<<1|is_end_1)) | (can_fuse & bit(o2<<1|is_end_2))) == 0)
 					continue;
 			} else if (counter1 == counter2 && current != counter1 && diag != counter1) {
 				static const std::uint8_t can_fuse = 0b01011010;
-				if ((can_fuse & bit(o1 << 1 | is_end_1) & bit(o2 << 1 | is_end_2)) == 0)
+				if (((can_fuse & bit(o1<<1|is_end_1)) | (can_fuse & bit(o2<<1|is_end_2))) == 0)
 					continue;
 			}
 			// merge
-			node_map.unite(cn1, cn2);
-			const auto start = nodes[cn1];
-			const auto end   = nodes[cn2];
-			links.push_back(vec4<float>{start.x, start.y, end.x, end.y});
+			size_t root1 = node_map.find(cn1);
+			size_t root2 = node_map.find(cn2);
+			if (root1 != root2) {
+				node_map.unite(cn1, cn2);
+				size_t new_root = node_map.find(root1);
+
+				node_cluster_ids[new_root] |= node_cluster_ids[root1] | node_cluster_ids[root2];
+				
+				const auto start = nodes[cn1];
+				const auto end   = nodes[cn2];
+				links.push_back(vec4<float>{start.x, start.y, end.x, end.y});
+			}
 		}
 	}
 
@@ -185,9 +223,11 @@ Mesh buildShapes(Clusters& clusters, size_t width, size_t height, Render &rdr, R
 
 	lines.clear();
 	std::vector<vec2<float>> compressed_nodes(compress.size());
+	std::vector<MaskT> compressed_node_cluster_ids(compress.size());
 	std::map<size_t, std::set<size_t>> remapped_edges;
 	for (const auto [orig, mapped] : compress) {
 		compressed_nodes[mapped] = nodes[orig];
+		compressed_node_cluster_ids[mapped] = node_cluster_ids[orig];
 	}
 	for (const auto [orig, mapped] : compress) {
 		for (const auto neighbr : edges[orig]) {
@@ -220,9 +260,269 @@ Mesh buildShapes(Clusters& clusters, size_t width, size_t height, Render &rdr, R
 	while (rdr.clear()) {
 		rdr.submit(line_info, lines, vec4<float>(1.0f, 1.0f, 1.0f, 1.0f), GL_LINES);
 		rdr.draw();
+		break;
 	}
 
-	return Mesh{ std::move(compressed_nodes), std::move(compressed_edges) };
+	return Mesh{ std::move(compressed_nodes), std::move(compressed_edges), std::move(compressed_node_cluster_ids) };
+}
+
+float calculateSignedPolygonArea(const std::vector<vec2<float>>& polygon_vertices)
+{
+    if (polygon_vertices.size() < 3) {
+        return 0.0;
+    }
+
+    float area = 0.0;
+    size_t n = polygon_vertices.size();
+
+    for (size_t i = 0; i < n; ++i) {
+        size_t j = (i + 1) % n;
+        area += (polygon_vertices[i].x * polygon_vertices[j].y);
+        area -= (polygon_vertices[j].x * polygon_vertices[i].y);
+    }
+
+    return area / 2.0;
+}
+
+std::pair<std::map<id_t, float>, std::map<id_t, vec2<float>>> calculateClusterAreas(
+	std::map<id_t, std::map<size_t, std::vector<size_t>>>& cluster_internal_graphs,
+	std::map<size_t, std::vector<size_t>>& cluster_nodes,
+	std::vector<vec2<float>>& vert)
+{
+	std::map<id_t, float> cluster_total_areas;
+	for (const auto& pair_cluster : cluster_internal_graphs) {
+        id_t cluster_id = pair_cluster.first;
+        const std::map<size_t, std::vector<size_t>>& cluster_graph = pair_cluster.second;
+        std::set<std::pair<size_t, size_t>> visited_edges_in_cluster;
+        for (size_t start_node_idx : cluster_nodes[cluster_id]) {
+            if (cluster_graph.find(start_node_idx) == cluster_graph.end()) {
+                continue;
+            }
+            
+            for (size_t initial_neighbor : cluster_graph.at(start_node_idx)) {
+                std::pair<size_t, size_t> initial_edge = {std::min(start_node_idx, initial_neighbor), std::max(start_node_idx, initial_neighbor)};
+                
+                if (visited_edges_in_cluster.count(initial_edge)) {
+                    continue;
+                }
+
+                std::vector<vec2<float>> polygon_vertices;
+                std::vector<size_t> path_nodes;
+                
+                size_t current_node = start_node_idx;
+                size_t previous_node = (size_t)-1;
+                size_t entry_node = start_node_idx;
+
+                path_nodes.push_back(current_node);
+                polygon_vertices.push_back(vert[current_node]);
+                
+                size_t next_node = initial_neighbor;
+                bool cycle_found = false;
+
+                size_t max_path_length = vert.size() * 2; 
+
+                while (path_nodes.size() <= max_path_length) {
+                    path_nodes.push_back(next_node);
+                    polygon_vertices.push_back(vert[next_node]);
+
+                    std::pair<size_t, size_t> visited_edge_key = {std::min(current_node, next_node), std::max(current_node, next_node)};
+                    visited_edges_in_cluster.insert(visited_edge_key);
+                    
+                    previous_node = current_node;
+                    current_node = next_node;
+
+                    if (current_node == entry_node && path_nodes.size() >= 3) {
+                        cycle_found = true;
+                        break;
+                    }
+                    
+                    const auto& neighbors = cluster_graph.at(current_node);
+                    size_t best_next_node = (size_t)-1;
+                    float max_angle = -1.0;
+
+                    const vec2<float> v_in = vert[current_node] - vert[previous_node];
+                    const float angle_in = atan2(v_in.y, v_in.x);
+
+                    for (size_t neighbor : neighbors) {
+                        if (neighbor == previous_node) {
+                            continue;
+                        }
+
+                        std::pair<size_t, size_t> potential_edge_key = {std::min(current_node, neighbor), std::max(current_node, neighbor)};
+                        if (visited_edges_in_cluster.count(potential_edge_key) && !(neighbor == entry_node && path_nodes.size() >= 2)) {
+                            continue;
+                        }
+
+                        const vec2<float> v_out = vert[neighbor] - vert[current_node];
+                        const float angle_out = atan2(v_out.y, v_out.x);
+                        
+                        float relative_angle = angle_out - angle_in;
+                        if (relative_angle < 0) {
+                            relative_angle += 2.0 * M_PI;
+                        }
+
+                        if (relative_angle > max_angle) {
+                            max_angle = relative_angle;
+                            best_next_node = neighbor;
+                        }
+                    }
+
+                    if (best_next_node == (size_t)-1) {
+						break; 
+                    }
+                    next_node = best_next_node;
+                }
+
+                if (cycle_found && polygon_vertices.size() >= 3) {
+                    cluster_total_areas[cluster_id] += std::abs(calculateSignedPolygonArea(polygon_vertices));
+                }
+            }
+        }
+    }
+
+    for (const auto& [cluster_id, area] : cluster_total_areas) {
+        cluster_total_areas[cluster_id] = std::abs(area);
+    }
+
+	std::map<id_t, vec2<float>> cluster_centers;
+	for (const auto& [cluster_id, nodes] : cluster_nodes) {
+		vec2<float> sum{0.0, 0.0};
+		for (size_t idx : nodes) {
+			sum = sum + vert[idx];
+		}
+		if (!nodes.empty()) {
+			sum = sum / static_cast<float>(nodes.size());
+		}
+		cluster_centers[cluster_id] = sum;
+	}
+
+	return std::make_pair(cluster_total_areas, cluster_centers);
+	
+}
+
+template <buffer_description D>
+void applyForces(Mesh& mesh, Render &rdr, Render::draw_context<D> const &line_info)
+{
+	std::vector<vec2<float>> vert         = mesh.vert;
+    std::vector<std::vector<size_t>> edge = mesh.edge;
+	std::vector<MaskT> node_cluster_ids   = mesh.node_cluster_ids;
+	const size_t n_nodes                  = node_cluster_ids.size();
+
+	std::map<size_t, std::vector<size_t>> cluster_nodes;
+    for (size_t i = 0; i < n_nodes; ++i) {
+        MaskT m = node_cluster_ids[i];
+        while (m) {
+            int c = __builtin_ctzll(m);
+            m &= (m - 1);
+            cluster_nodes[c].push_back(i);
+		}
+    }
+	std::map<size_t, std::set<id_t>> vertex_clusters;
+	for (size_t i = 0; i < n_nodes; ++i) {
+		MaskT m = node_cluster_ids[i];
+		while (m) {
+			int c = __builtin_ctzll(m);
+			m &= (m - 1);
+			vertex_clusters[i].insert(c);
+		}
+	}
+
+	std::vector<std::set<size_t>> neighbor_map(n_nodes);
+	for (size_t u = 0; u < edge.size(); ++u) {
+		for (size_t v : edge[u]) {
+			if (v < n_nodes) {
+				neighbor_map[u].insert(v);
+				neighbor_map[v].insert(u);
+			}
+		}
+	}
+
+	std::map<id_t, std::map<size_t, std::vector<size_t>>> cluster_internal_graphs;
+    for (size_t u = 0; u < edge.size(); ++u) {
+        MaskT mu = node_cluster_ids[u];
+        for (size_t v : edge[u]) {
+            if (v >= n_nodes) continue;
+            MaskT common = mu & node_cluster_ids[v];
+            while (common) {
+                int c = __builtin_ctzll(common);
+                common &= (common - 1);
+                auto& graph = cluster_internal_graphs[c];
+                graph[u].push_back(v);
+                graph[v].push_back(u);
+            }
+        }
+    }
+
+	auto draw_current_state = [&](const std::vector<vec2<float>>& vert, bool stay_visible) {
+		std::vector<vec4<float>> lines;
+		for (size_t u = 0; u < edge.size(); ++u) {
+			for (size_t v : edge[u]) {
+				if (v < vert.size()) {
+					lines.push_back(vec4<float>(vert[u].x, vert[u].y, vert[v].x, vert[v].y));
+				}
+			}
+		}
+		rdr.removeAll();
+		while (rdr.clear() && stay_visible) {
+			rdr.submit(line_info, lines, vec4<float>(1.0f, 0.7f, 0.8f, 1.0f), GL_LINES);
+			rdr.draw();
+		}
+	};
+
+	float force_threshold = 0.01;
+	float k0 = 0.15;
+	float kN = 0.15;
+	float eta = 0.0015;
+
+	std::vector<vec2<float>> vert0 = vert;
+	auto [areas0, _] = calculateClusterAreas(cluster_internal_graphs, cluster_nodes, vert);
+
+	float max_force = 2 * force_threshold;
+	int it = 0;
+	while(max_force > force_threshold)
+	{
+		max_force = 2 * force_threshold;
+		it = (it + 1)%1000;
+
+		auto [areas, centers] = calculateClusterAreas(cluster_internal_graphs, cluster_nodes, vert);
+
+		for (size_t u = 0; u < n_nodes; ++u) {
+			vec2<float> force = {0.0, 0.0};
+
+			if (neighbor_map[u].size() == 0) continue;
+
+			// Local Spring
+			force = force + (vert0[u] - vert[u]) * k0 * (vert0[u] - vert[u]).length();
+
+			// Neighbor springs
+			for (size_t v : neighbor_map[u]) {
+				force = force + (vert[v] - vert[u]) * kN;
+			}
+
+			// Area forces
+			for (id_t c: vertex_clusters[u]){
+				float area = areas[c];
+				float area0 = areas0[c];
+				vec2<float> center = centers[c];
+
+				force = force + (vert[u] - center) * (1.0f - sqrt(area / area0));
+			}
+			if (force.length() > max_force)
+				max_force = force.length();
+				max_force = force.length();
+
+			vert[u] = vert[u] + force * eta;
+		}
+
+		if (it % 1000 == 0)
+			draw_current_state(vert, false);
+
+		std::this_thread::sleep_for(std::chrono::milliseconds(1));
+	}
+
+	std::cout << "Done applying forces (threshold reached)" << std::endl;
+
+	draw_current_state(vert, true);
 }
 
 int main(int argc, char **argv)
@@ -232,6 +532,7 @@ int main(int argc, char **argv)
 		return 1;
 	}
 	Window window("Depixel", 720, 720);
+	Render rdr(std::move(window));
 
 	Shader shader(
 		ShaderStage(
@@ -242,6 +543,7 @@ int main(int argc, char **argv)
 			uniform float inner_scale;
 			void main() {
 				vec2 pos = (attr_pos * inner_scale + inst_pos) * scale;
+				pos.y = 1.0 - pos.y;
 				gl_Position = vec4(pos - vec2(0.5, 0.5), 0.0, 1.0);
 			})", ShaderStage::Vertex),
 		ShaderStage(
@@ -301,7 +603,7 @@ int main(int argc, char **argv)
 	Render::draw_context<attr1descr> info{shader, va, vb_pos, npos};
 
 	int width, height, channels;
-	stbi_set_flip_vertically_on_load(true);
+	stbi_set_flip_vertically_on_load(false);
 	auto pixels = stbi_load(argv[1], &width, &height, &channels, 0);
 	assert(channels == 3);
 	assert(width > 0 && height > 0);
@@ -338,7 +640,9 @@ int main(int argc, char **argv)
 				if ((gl_VertexID & 1) == 1) {
 					pos = inst_endpoints.zw;
 				}
-				gl_Position = vec4(pos * scale - vec2(0.5, 0.5), 0.0, 1.0);
+				pos = pos * scale;
+				pos.y = 1.0 - pos.y;
+				gl_Position = vec4(pos - vec2(0.5, 0.5), 0.0, 1.0);
 			})", ShaderStage::Vertex),
 		ShaderStage(R"(#version 330 core
 			out vec4 frag_color;
@@ -359,13 +663,13 @@ int main(int argc, char **argv)
 	VertexBuffer line_vb(std::span{static_cast<vec4<float>*>(nullptr), nline}, attr2descr{});
 	Render::draw_context<attr2descr> line_info{line_shader, line_va, line_vb, nline};
 
-	Render rdr(std::move(window));
 	for (size_t ic = 0; ic < clusters.components(); ++ic) {
 		rdr.submit(info, cluster_pos[ic], colors[ic % std::size(colors)], GL_QUADS);
 	}
 	rdr.keep();
 
 	auto mesh = buildShapes(clusters, width, height, rdr, line_info);
+	applyForces(mesh, rdr, line_info);
 
 	stbi_image_free(pixels);
 }
