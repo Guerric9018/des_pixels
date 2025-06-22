@@ -5,7 +5,9 @@
 #include <cassert>
 #include <vector>
 #include <map>
+#include <unordered_map>
 #include <set>
+#include <unordered_set>
 #include <algorithm>
 #include <cstdint>
 #include <thread>
@@ -204,6 +206,7 @@ Mesh buildShapes(Clusters& clusters, size_t width, size_t height, Render &rdr, R
 				if ((side1 & 1) != (side2 & 1))
 					continue;
 			}
+
 			// merge
 			size_t root1 = node_map.find(cn1);
 			size_t root2 = node_map.find(cn2);
@@ -291,23 +294,41 @@ float calculateSignedPolygonArea(const std::vector<vec2<float>>& polygon_vertice
     return area / 2.0;
 }
 
-std::pair<std::map<id_t, float>, std::map<id_t, vec2<float>>> calculateClusterAreas(
-	std::map<id_t, std::map<size_t, std::vector<size_t>>>& cluster_internal_graphs,
-	std::map<size_t, std::vector<size_t>>& cluster_nodes,
-	std::vector<vec2<float>>& vert)
+std::pair<std::unordered_map<id_t, float>, std::unordered_map<id_t, vec2<float>>> calculateClusterAreas(
+	const std::vector<std::pair<id_t, std::unordered_map<size_t, std::vector<size_t>>>>& cluster_internal_graphs_vector,
+	const std::unordered_map<size_t, std::vector<size_t>>& cluster_nodes,
+	const std::vector<vec2<float>>& vert)
 {
-	std::map<id_t, float> cluster_total_areas;
-	for (const auto& pair_cluster : cluster_internal_graphs) {
-        id_t cluster_id = pair_cluster.first;
-        const std::map<size_t, std::vector<size_t>>& cluster_graph = pair_cluster.second;
-        std::set<std::pair<size_t, size_t>> visited_edges_in_cluster;
-        for (size_t start_node_idx : cluster_nodes[cluster_id]) {
+	struct Edge {
+		size_t a, b;
+		bool operator==(const Edge& other) const {
+			return a == other.a && b == other.b;
+		}
+	};
+
+	struct EdgeHash {
+		size_t operator()(const Edge& e) const {
+			return std::hash<size_t>()(e.a) * 31 + std::hash<size_t>()(e.b);
+		}
+	};
+
+	using EdgeSet = std::unordered_set<Edge, EdgeHash>;
+
+
+	std::unordered_map<id_t, float> cluster_total_areas;
+	#pragma omp parallel for
+	for (int i = 0; i < cluster_internal_graphs_vector.size(); ++i) {
+		auto pair_cluster = cluster_internal_graphs_vector[i];
+		id_t cluster_id = pair_cluster.first;
+        const std::unordered_map<size_t, std::vector<size_t>>& cluster_graph = pair_cluster.second;
+        EdgeSet visited_edges_in_cluster;
+        for (size_t start_node_idx : cluster_nodes.at(cluster_id)) {
             if (cluster_graph.find(start_node_idx) == cluster_graph.end()) {
                 continue;
             }
             
             for (size_t initial_neighbor : cluster_graph.at(start_node_idx)) {
-                std::pair<size_t, size_t> initial_edge = {std::min(start_node_idx, initial_neighbor), std::max(start_node_idx, initial_neighbor)};
+                Edge initial_edge = {std::min(start_node_idx, initial_neighbor), std::max(start_node_idx, initial_neighbor)};
                 
                 if (visited_edges_in_cluster.count(initial_edge)) {
                     continue;
@@ -321,7 +342,7 @@ std::pair<std::map<id_t, float>, std::map<id_t, vec2<float>>> calculateClusterAr
                 size_t entry_node = start_node_idx;
 
                 path_nodes.push_back(current_node);
-                polygon_vertices.push_back(vert[current_node]);
+                polygon_vertices.emplace_back(vert[current_node]);
                 
                 size_t next_node = initial_neighbor;
                 bool cycle_found = false;
@@ -330,10 +351,10 @@ std::pair<std::map<id_t, float>, std::map<id_t, vec2<float>>> calculateClusterAr
 
                 while (path_nodes.size() <= max_path_length) {
                     path_nodes.push_back(next_node);
-                    polygon_vertices.push_back(vert[next_node]);
+                    polygon_vertices.emplace_back(vert[next_node]);
 
-                    std::pair<size_t, size_t> visited_edge_key = {std::min(current_node, next_node), std::max(current_node, next_node)};
-                    visited_edges_in_cluster.insert(visited_edge_key);
+					Edge visited_edge_key = {std::min(current_node, next_node), std::max(current_node, next_node)};
+					visited_edges_in_cluster.insert(visited_edge_key);
                     
                     previous_node = current_node;
                     current_node = next_node;
@@ -355,10 +376,10 @@ std::pair<std::map<id_t, float>, std::map<id_t, vec2<float>>> calculateClusterAr
                             continue;
                         }
 
-                        std::pair<size_t, size_t> potential_edge_key = {std::min(current_node, neighbor), std::max(current_node, neighbor)};
-                        if (visited_edges_in_cluster.count(potential_edge_key) && !(neighbor == entry_node && path_nodes.size() >= 2)) {
-                            continue;
-                        }
+						Edge potential_edge_key = {std::min(current_node, neighbor), std::max(current_node, neighbor)};
+						if (visited_edges_in_cluster.count(potential_edge_key) && !(neighbor == entry_node && path_nodes.size() >= 2)) {
+							continue;
+						}
 
                         const vec2<float> v_out = vert[neighbor] - vert[current_node];
                         const float angle_out = atan2(v_out.y, v_out.x);
@@ -391,7 +412,7 @@ std::pair<std::map<id_t, float>, std::map<id_t, vec2<float>>> calculateClusterAr
         cluster_total_areas[cluster_id] = std::abs(area);
     }
 
-	std::map<id_t, vec2<float>> cluster_centers;
+	std::unordered_map<id_t, vec2<float>> cluster_centers;
 	for (const auto& [cluster_id, nodes] : cluster_nodes) {
 		vec2<float> sum{0.0, 0.0};
 		for (size_t idx : nodes) {
@@ -415,7 +436,7 @@ void applyForces(Mesh& mesh, Render &rdr, Render::draw_context<D> const &line_in
 	std::vector<MaskT> node_cluster_ids   = mesh.node_cluster_ids;
 	const size_t n_nodes                  = node_cluster_ids.size();
 
-	std::map<size_t, std::vector<size_t>> cluster_nodes;
+	std::unordered_map<size_t, std::vector<size_t>> cluster_nodes;
     for (size_t i = 0; i < n_nodes; ++i) {
         MaskT m = node_cluster_ids[i];
         while (m) {
@@ -424,7 +445,7 @@ void applyForces(Mesh& mesh, Render &rdr, Render::draw_context<D> const &line_in
             cluster_nodes[c].push_back(i);
 		}
     }
-	std::map<size_t, std::set<id_t>> vertex_clusters;
+	std::unordered_map<size_t, std::set<id_t>> vertex_clusters;
 	for (size_t i = 0; i < n_nodes; ++i) {
 		MaskT m = node_cluster_ids[i];
 		while (m) {
@@ -444,7 +465,7 @@ void applyForces(Mesh& mesh, Render &rdr, Render::draw_context<D> const &line_in
 		}
 	}
 
-	std::map<id_t, std::map<size_t, std::vector<size_t>>> cluster_internal_graphs;
+	std::unordered_map<id_t, std::unordered_map<size_t, std::vector<size_t>>> cluster_internal_graphs;
     for (size_t u = 0; u < edge.size(); ++u) {
         MaskT mu = node_cluster_ids[u];
         for (size_t v : edge[u]) {
@@ -470,19 +491,25 @@ void applyForces(Mesh& mesh, Render &rdr, Render::draw_context<D> const &line_in
 			}
 		}
 		rdr.removeAll();
-		while (rdr.clear() && stay_visible) {
+		rdr.clear();
+		rdr.submit(line_info, lines, vec4<float>(1.0f, 0.7f, 0.8f, 1.0f), GL_LINES);
+		rdr.draw();
+		while (rdr.clear() && stay_visible)
+		{
 			rdr.submit(line_info, lines, vec4<float>(1.0f, 0.7f, 0.8f, 1.0f), GL_LINES);
 			rdr.draw();
 		}
 	};
 
-	float force_threshold = 0.01;
-	float k0 = 0.15;
-	float kN = 0.15;
-	float eta = 0.0015;
+	float force_threshold = 0.001;
+	float k0 = 0.25;
+	float kN = 0.45;
+	float eta = 0.003;
 
 	std::vector<vec2<float>> vert0 = vert;
-	auto [areas0, _] = calculateClusterAreas(cluster_internal_graphs, cluster_nodes, vert);
+	auto cluster_internal_graphs_vector = std::vector<std::pair<id_t, std::unordered_map<size_t, std::vector<size_t>>>>(
+		cluster_internal_graphs.begin(), cluster_internal_graphs.end());
+	auto [areas0, _] = calculateClusterAreas(cluster_internal_graphs_vector, cluster_nodes, vert);
 
 	float max_force = 2 * force_threshold;
 	int it = 0;
@@ -491,7 +518,7 @@ void applyForces(Mesh& mesh, Render &rdr, Render::draw_context<D> const &line_in
 		max_force = 2 * force_threshold;
 		it = (it + 1)%1000;
 
-		auto [areas, centers] = calculateClusterAreas(cluster_internal_graphs, cluster_nodes, vert);
+		auto [areas, centers] = calculateClusterAreas(cluster_internal_graphs_vector, cluster_nodes, vert);
 
 		for (size_t u = 0; u < n_nodes; ++u) {
 			vec2<float> force = {0.0, 0.0};
@@ -521,10 +548,13 @@ void applyForces(Mesh& mesh, Render &rdr, Render::draw_context<D> const &line_in
 			vert[u] = vert[u] + force * eta;
 		}
 
-		if (it % 1000 == 0)
+		if (it % 1000 == 0) {
 			draw_current_state(vert, false);
-
-		// std::this_thread::sleep_for(std::chrono::milliseconds(1));
+			std::cout << "Cluster areas at iteration:\n";
+			for (const auto& [cid, area] : areas) {
+				std::cout << "  Cluster " << cid << ": " << area << "\n";
+			}
+		}
 	}
 
 	std::cout << "Done applying forces (threshold reached)" << std::endl;
