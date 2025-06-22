@@ -17,6 +17,10 @@
 #include "gfx/shader.hpp"
 #include "gfx/buffer.hpp"
 #include "gfx/render.hpp"
+#include "imgui.h"
+#include "imconfig.h"
+#include "imgui_impl_glfw.h"
+#include "imgui_impl_opengl3.h"
 
 using MaskT = uint64_t; 
 
@@ -485,12 +489,12 @@ std::pair<std::unordered_map<id_t, float>, std::unordered_map<id_t, vec2<float>>
 }
 
 template <buffer_description D>
-void applyForces(Mesh& mesh, Render &rdr, Render::draw_context<D> const &line_info)
+void applyForces(Mesh& mesh, Render &rdr, Render::draw_context<D> const &line_info, float k0, float kN)
 {
-	std::vector<vec2<float>> vert         = mesh.vert;
-    std::vector<std::vector<size_t>> edge = mesh.edge;
-	std::vector<MaskT> node_cluster_ids   = mesh.node_cluster_ids;
-	const size_t n_nodes                  = node_cluster_ids.size();
+	std::vector<vec2<float>>& vert         = mesh.vert;
+    std::vector<std::vector<size_t>>& edge = mesh.edge;
+	std::vector<MaskT>& node_cluster_ids   = mesh.node_cluster_ids;
+	const size_t n_nodes                   = node_cluster_ids.size();
 
 	std::unordered_map<size_t, std::vector<size_t>> cluster_nodes;
     for (size_t i = 0; i < n_nodes; ++i) {
@@ -537,7 +541,7 @@ void applyForces(Mesh& mesh, Render &rdr, Render::draw_context<D> const &line_in
         }
     }
 
-	auto draw_current_state = [&](const std::vector<vec2<float>>& vert, bool stay_visible) {
+	auto draw_current_state = [&](const std::vector<vec2<float>>& vert) {
 		std::vector<vec4<float>> lines;
 		for (size_t u = 0; u < edge.size(); ++u) {
 			for (size_t v : edge[u]) {
@@ -550,16 +554,9 @@ void applyForces(Mesh& mesh, Render &rdr, Render::draw_context<D> const &line_in
 		rdr.clear();
 		rdr.submit(line_info, lines, vec4<float>(1.0f, 0.7f, 0.8f, 1.0f), GL_LINES);
 		rdr.draw();
-		while (rdr.clear() && stay_visible)
-		{
-			rdr.submit(line_info, lines, vec4<float>(1.0f, 0.7f, 0.8f, 1.0f), GL_LINES);
-			rdr.draw();
-		}
 	};
 
 	float force_threshold = 0.001;
-	float k0 = 0.25;
-	float kN = 0.45;
 	float eta = 0.003;
 
 	std::vector<vec2<float>> vert0 = vert;
@@ -605,13 +602,14 @@ void applyForces(Mesh& mesh, Render &rdr, Render::draw_context<D> const &line_in
 		}
 
 		if (it % 1000 == 0) {
-			draw_current_state(vert, false);
+			draw_current_state(vert);
 		}
 	}
 
 	std::cout << "Done applying forces (threshold reached)" << std::endl;
 
-	draw_current_state(vert, true);
+	draw_current_state(vert);
+	rdr.keep();
 }
 
 int main(int argc, char **argv)
@@ -622,6 +620,23 @@ int main(int argc, char **argv)
 	}
 	Window window("Depixel", 720, 720);
 	Render rdr(std::move(window));
+	
+	// Imgui intialization
+	ImGui::CreateContext();
+    ImGuiIO& io = ImGui::GetIO(); (void)io;
+    io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+    io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+    io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
+	ImGui::StyleColorsDark();
+	ImGuiStyle& style = ImGui::GetStyle();
+    if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
+    {
+        style.WindowRounding = 0.0f;
+        style.Colors[ImGuiCol_WindowBg].w = 1.0f;
+    }
+    ImGui_ImplGlfw_InitForOpenGL(rdr.getHandle(), true);
+    const char* glsl_version = "#version 330";
+    ImGui_ImplOpenGL3_Init(glsl_version);
 
 	Shader shader(
 		ShaderStage(
@@ -757,9 +772,65 @@ int main(int argc, char **argv)
 	}
 	rdr.keep();
 
-	auto mesh = buildShapes(clusters, width, height, rdr, line_info);
-	applyForces(mesh, rdr, line_info);
+	Mesh mesh;
+	bool built_mesh = false;
+
+	static float k0 = 0.25f;
+    static float kN = 0.45f;
+	glDisable(GL_DEPTH_TEST);
+	glEnable(GL_BLEND);
+	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+	ImGui::SetNextWindowBgAlpha(0.0f);
+
+
+while (!glfwWindowShouldClose(rdr.getHandle()))
+	{
+		rdr.clear();
+		glfwPollEvents();
+		ImGui_ImplOpenGL3_NewFrame();
+		ImGui_ImplGlfw_NewFrame();
+		ImGui::NewFrame();
+		ImGui::Begin("Controls");
+		ImGui::Text("Force Parameters");
+		ImGui::SliderFloat("k0 (Local Spring Stiffness)", &k0, 0.0f, 1.0f);
+		ImGui::SliderFloat("kN (Neighbor Springs Stiffness)", &kN, 0.0f, 1.0f);
+		if (ImGui::Button("Build Mesh"))
+			{
+				rdr.removeAll();
+				rdr.clear();
+				rdr.draw();
+				mesh = buildShapes(clusters, width, height, rdr, line_info);
+				built_mesh = true;
+			}
+		if (ImGui::Button("Apply Forces"))
+		{
+			if (built_mesh) {
+				applyForces(mesh, rdr, line_info, k0, kN);
+			} else {
+				std::cout << "You must build shapes before applying forces.\n";
+			}
+		}
+		ImGui::End();
+
+		ImGui::Render();
+		ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+		if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
+		{
+			GLFWwindow* backup_current_context = glfwGetCurrentContext();
+			ImGui::UpdatePlatformWindows();
+			ImGui::RenderPlatformWindowsDefault();
+			glfwMakeContextCurrent(backup_current_context);
+		}
+				
+		rdr.draw();
+	    glfwSwapBuffers(rdr.getHandle());
+	}
+
+	ImGui_ImplOpenGL3_Shutdown();
+    ImGui_ImplGlfw_Shutdown();
+    ImGui::DestroyContext();
 
 	stbi_image_free(pixels);
+
 }
 

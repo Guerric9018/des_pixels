@@ -60,6 +60,10 @@ public:
 		});
 	}
 
+	GLFWwindow* getHandle() {
+		return window.handle;
+	}
+
 	bool clear();
 	void draw();
 	void keep();
