@@ -120,6 +120,7 @@ private:
 	size_t height;
 
 	std::map<id_t, cluster> cluster2vertex;
+	std::map<id_t, Color> avg;
 	union_find vertex2cluster;
 
 public:
@@ -128,6 +129,7 @@ public:
 	std::map<id_t, cluster> const &get() const;
 	size_t components() const ;
 	Color average_color(byte *data, id_t clust);
+	Color average_color(id_t clust) const;
 
 private:
 	using conflict = std::pair<size_t, size_t>;

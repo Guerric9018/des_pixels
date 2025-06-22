@@ -1,4 +1,5 @@
 #include "data.hpp"
+#include <cassert>
 #include <vector>
 
 Clusters::Clusters(size_t width, size_t height, byte *data)
@@ -7,6 +8,11 @@ Clusters::Clusters(size_t width, size_t height, byte *data)
 	auto diag = merge_nonconflicts(data);
 	conflict_resolution(diag);
 	reverse_mapping();
+	
+	// find all cluster colors
+	for (const auto &[clust, _] : cluster2vertex) {
+		avg[clust] = average_color(data, clust);
+	}
 }
 
 id_t Clusters::repr(size_t id)
@@ -112,11 +118,19 @@ Color Clusters::average_color(byte *data, id_t clust)
 		totalB += color.b;
 	}
 
-	return Color(
+	const auto col = Color(
 		static_cast<unsigned char>(totalR / cluster.size()),
 		static_cast<unsigned char>(totalG / cluster.size()),
 		static_cast<unsigned char>(totalB / cluster.size())
 	);
+	return col;
+}
+
+Color Clusters::average_color(id_t clust) const
+{
+	const auto pos = avg.find(clust);
+	assert(pos != avg.end());
+	return pos->second;
 }
 
 std::map<id_t, Clusters::cluster> const &Clusters::get() const

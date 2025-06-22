@@ -8,11 +8,15 @@
 #include <unordered_map>
 #include <set>
 #include <unordered_set>
+#include <sstream>
+#include <fstream>
+#include <string_view>
+#include <charconv>
 #include <algorithm>
 #include <deque>
 #include <cstdint>
 #include <thread>
-#include <chrono>
+#include <string>
 #include "data.hpp"
 #include "gfx.hpp"
 #include "gfx/shader.hpp"
@@ -555,7 +559,7 @@ std::pair<std::unordered_map<id_t, float>, std::unordered_map<id_t, vec2<float>>
 }
 
 template <buffer_description D>
-void applyForces(Mesh& mesh, Render &rdr, Render::draw_context<D> const &line_info)
+std::vector<vec2<float>> applyForces(Mesh& mesh, Render &rdr, Render::draw_context<D> const &line_info)
 {
 	std::vector<vec2<float>> vert         = mesh.vert;
     std::vector<std::vector<size_t>> edge(mesh.edge.size());
@@ -687,6 +691,67 @@ void applyForces(Mesh& mesh, Render &rdr, Render::draw_context<D> const &line_in
 	std::cout << "Done applying forces (threshold reached)" << std::endl;
 
 	draw_current_state(vert, true);
+	return vert;
+}
+
+std::ostream &operator<<(std::ostream &os, Color color)
+{
+	char buf[7];
+	std::sprintf(buf, "%02x%02x%02x", color.r, color.g, color.b);
+	return os << buf;
+}
+
+std::string serializeSVG(Color color, Boundary const &bnd, std::vector<vec2<float>> const &pos)
+{
+	std::stringstream result;
+	result << "\t<g fill=\"#" << color << "\">\n";
+	result << "\t\t<polygon points=\"";
+	bool first = true;
+	for (const auto i : bnd.outer) {
+		if (first) {
+			first = false;
+		} else {
+			result << ' ';
+		}
+		result << pos[i].x << ',' << pos[i].y;
+	}
+	result << "\"/>\n";
+	result << "\t</g>\n";
+	return result.str();
+}
+
+std::string serializeSVG(Clusters const &clusters, BoundaryGraph const &bnd, std::vector<vec2<float>> const &pos)
+{
+	std::stringstream result;
+	result << R"(<?xml version="1.0"?>)" << '\n';
+	result << R"(<svg width="600" height="600" viewBox="-100 -100 700 700" xmlns="http://www.w3.org/2000/svg">)" << '\n';
+	std::deque<id_t> dfs;
+	// starts from the image boundary
+	dfs.push_back(id_t(-1));
+	std::set<id_t> seen;
+	while (!dfs.empty()) {
+		const auto s = dfs.back();
+		dfs.pop_back();
+		if (seen.contains(s))
+			continue;
+		seen.emplace(s);
+		const auto boundary = bnd.find(s);
+		assert(boundary != bnd.end());
+		if (s != id_t(-1)) {
+			result << serializeSVG(clusters.average_color(s), boundary->second, pos);
+		}
+		for (const auto &t : boundary->second.adj) {
+			dfs.push_back(t);
+		}
+	}
+	result << "</svg>\n";
+	return result.str();
+}
+
+void writeToFile(std::string_view path, std::string_view content)
+{
+	std::ofstream file(path.data());
+	file << content;
 }
 
 int main(int argc, char **argv)
@@ -834,7 +899,9 @@ int main(int argc, char **argv)
 
 	auto mesh = buildShapes(clusters, width, height, rdr, line_info);
 	auto polys = clusterBoundaries(mesh);
-	applyForces(mesh, rdr, line_info);
+	auto smoothed = applyForces(mesh, rdr, line_info);
+	auto serialized = serializeSVG(clusters, polys, smoothed);
+	writeToFile(argv[2], serialized);
 
 	stbi_image_free(pixels);
 }
