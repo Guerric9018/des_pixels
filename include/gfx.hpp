@@ -1,6 +1,9 @@
 #pragma once
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
+#include <utility>
+#include <iostream>
+#include <cstdlib>
 
 
 struct Window {
@@ -30,20 +33,19 @@ struct Window {
 		glViewport(0, 0, width, height);
 	}
 
-	~Window()
+	Window(Window &&other)
+		: width(other.width),
+		height(other.height),
+		handle(std::exchange(other.handle, nullptr))
 	{
-		glfwDestroyWindow(handle);
-		glfwTerminate();
 	}
 
-	void run(auto fn, bool loop = true)
+	~Window()
 	{
-		do {
-			glClear(GL_COLOR_BUFFER_BIT);
-			glfwPollEvents();
-			fn();
-			glfwSwapBuffers(handle);
-		} while (loop && !glfwWindowShouldClose(handle));
+		if (handle) {
+			glfwDestroyWindow(handle);
+			glfwTerminate();
+		}
 	}
 };
 
