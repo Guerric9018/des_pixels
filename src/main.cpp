@@ -316,11 +316,19 @@ float calculateSignedPolygonArea(const std::vector<vec2<float>>& polygon_vertice
     return area / 2.0;
 }
 
-std::pair<std::unordered_map<id_t, float>, std::unordered_map<id_t, vec2<float>>> calculateClusterAreas(
+struct Polygon {
+	std::vector<vec2<float>> vertices;
+	float signed_area;
+	int containment_level = 0;
+};
+
+using ClusterGraph = std::unordered_map<id_t, std::vector<Polygon>>;
+
+ClusterGraph clusterGraph(
 	const std::vector<std::pair<id_t, std::unordered_map<size_t, std::vector<size_t>>>>& cluster_internal_graphs_vector,
 	const std::unordered_map<size_t, std::vector<size_t>>& cluster_nodes,
-	const std::vector<vec2<float>>& vert)
-{
+	const std::vector<vec2<float>>& vert) {
+
 	struct Edge {
 		size_t a, b;
 		bool operator==(const Edge& other) const {
@@ -336,15 +344,8 @@ std::pair<std::unordered_map<id_t, float>, std::unordered_map<id_t, vec2<float>>
 
 	using EdgeSet = std::unordered_set<Edge, EdgeHash>;
 
-	struct Polygon {
-        std::vector<vec2<float>> vertices;
-        float signed_area;
-		int containment_level = 0;
-    };
-	std::unordered_map<id_t, std::vector<Polygon>> cluster_polygons;
+	ClusterGraph graph;
 
-	std::unordered_map<id_t, float> cluster_total_areas;
-	#pragma omp parallel for
 	for (int i = 0; i < cluster_internal_graphs_vector.size(); ++i) {
 
 		auto pair_cluster = cluster_internal_graphs_vector[i];
@@ -441,13 +442,11 @@ std::pair<std::unordered_map<id_t, float>, std::unordered_map<id_t, vec2<float>>
             }
         }
 
-		#pragma omp critical
-        {
-             cluster_polygons[cluster_id].insert(cluster_polygons[cluster_id].end(), found_polygons.begin(), found_polygons.end());
-        }
+        graph[cluster_id].insert(graph[cluster_id].end(), found_polygons.begin(), found_polygons.end());
+
     }
 
-    for (auto& [cluster_id, polygons] : cluster_polygons) {
+    for (auto& [cluster_id, polygons] : graph) {
         
         for (size_t i = 0; i < polygons.size(); ++i) {
             for (size_t j = 0; j < polygons.size(); ++j) {
@@ -460,7 +459,27 @@ std::pair<std::unordered_map<id_t, float>, std::unordered_map<id_t, vec2<float>>
                 }
             }
         }
+	}
 
+	return graph;
+}
+
+
+std::pair<std::unordered_map<id_t, float>, std::unordered_map<id_t, vec2<float>>> calculateClusterAreas(
+	const std::vector<std::pair<id_t, std::unordered_map<size_t, std::vector<size_t>>>>& cluster_internal_graphs_vector,
+	const std::unordered_map<size_t, std::vector<size_t>>& cluster_nodes,
+	const std::vector<vec2<float>>& vert,
+	ClusterGraph& cluster_graph)
+{
+	std::unordered_map<id_t, float> cluster_total_areas;
+
+	for (auto& [cluster_id, polygons] : cluster_graph) {
+		for (auto& p : polygons) {	
+			p.signed_area = calculateSignedPolygonArea(p.vertices);
+		}
+	}
+
+	for (auto& [cluster_id, polygons] : cluster_graph) {	
         float net_area = 0.0f;
         for (const auto& p : polygons) {
             if (p.containment_level % 2 == 1) {
@@ -559,10 +578,14 @@ void applyForces(Mesh& mesh, Render &rdr, Render::draw_context<D> const &line_in
 	float force_threshold = 0.001;
 	float eta = 0.003;
 
+
 	std::vector<vec2<float>> vert0 = vert;
 	auto cluster_internal_graphs_vector = std::vector<std::pair<id_t, std::unordered_map<size_t, std::vector<size_t>>>>(
 		cluster_internal_graphs.begin(), cluster_internal_graphs.end());
-	auto [areas0, _] = calculateClusterAreas(cluster_internal_graphs_vector, cluster_nodes, vert);
+
+	
+	ClusterGraph cluster_graph = clusterGraph(cluster_internal_graphs_vector, cluster_nodes, vert);
+	auto [areas0, _] = calculateClusterAreas(cluster_internal_graphs_vector, cluster_nodes, vert, cluster_graph);
 
 	float max_force = 2 * force_threshold;
 	int it = 0;
@@ -571,7 +594,7 @@ void applyForces(Mesh& mesh, Render &rdr, Render::draw_context<D> const &line_in
 		max_force = 2 * force_threshold;
 		it = (it + 1)%1000;
 
-		auto [areas, centers] = calculateClusterAreas(cluster_internal_graphs_vector, cluster_nodes, vert);
+		auto [areas, centers] = calculateClusterAreas(cluster_internal_graphs_vector, cluster_nodes, vert, cluster_graph);
 
 		for (size_t u = 0; u < n_nodes; ++u) {
 			vec2<float> force = {0.0, 0.0};
@@ -712,7 +735,7 @@ int main(int argc, char **argv)
 	assert(channels == 3);
 	assert(width > 0 && height > 0);
 
-	Clusters clusters(width, height, pixels);
+	Clusters clusters(width, height, pixels, 48);
 	std::cout << "found " << clusters.components() << " clusters\n";
 
 	vec4<float> colors[] = {
@@ -775,8 +798,8 @@ int main(int argc, char **argv)
 	Mesh mesh;
 	bool built_mesh = false;
 
-	static float k0 = 0.25f;
-    static float kN = 0.45f;
+	static float k0 = 0.3f;
+    static float kN = 0.65f;
 	glDisable(GL_DEPTH_TEST);
 	glEnable(GL_BLEND);
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
@@ -794,6 +817,33 @@ while (!glfwWindowShouldClose(rdr.getHandle()))
 		ImGui::Text("Force Parameters");
 		ImGui::SliderFloat("k0 (Local Spring Stiffness)", &k0, 0.0f, 1.0f);
 		ImGui::SliderFloat("kN (Neighbor Springs Stiffness)", &kN, 0.0f, 1.0f);
+
+		static int delta_c = 48;
+		ImGui::SliderInt("delta_c (Cluster Threshold)", &delta_c, 0, 256);
+
+		if (ImGui::Button("Rebuild Clusters"))
+		{
+			clusters = Clusters(width, height, pixels, delta_c);
+			std::cout << "Rebuilt clusters with delta_c = " << delta_c << ", found " << clusters.components() << " clusters\n";
+
+			cluster_pos.clear();
+			for (const auto &[_, cluster] : clusters.get()) {
+				cluster_pos.emplace_back();
+				for (const auto &[xy] : cluster) {
+					const auto x = xy % width;
+					const auto y = xy / width;
+					cluster_pos.back().emplace_back(float(x), float(y));
+				}
+			}
+
+			rdr.removeAll();
+			rdr.clear();
+			for (size_t ic = 0; ic < clusters.components(); ++ic) {
+				rdr.submit(info, cluster_pos[ic], colors[ic % std::size(colors)], GL_QUADS);
+			}
+			rdr.keep();
+			built_mesh = false;
+		}
 		if (ImGui::Button("Build Mesh"))
 			{
 				rdr.removeAll();

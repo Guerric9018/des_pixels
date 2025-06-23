@@ -1,10 +1,11 @@
 #include "data.hpp"
 #include <vector>
+#include <iostream>
 
-Clusters::Clusters(size_t width, size_t height, byte *data)
+Clusters::Clusters(size_t width, size_t height, byte *data, int delta_c)
 	: width(width), height(height), vertex2cluster(width * height)
 {
-	auto diag = merge_nonconflicts(data);
+	auto diag = merge_nonconflicts(data, delta_c);
 	conflict_resolution(diag);
 	reverse_mapping();
 }
@@ -16,7 +17,7 @@ id_t Clusters::repr(size_t id)
 	return vertex2cluster.find(id);
 }
 
-std::vector<Clusters::conflict> Clusters::merge_nonconflicts(byte *data)
+std::vector<Clusters::conflict> Clusters::merge_nonconflicts(byte *data, int delta_c)
 {
 	std::vector<conflict> diagonals;
 	auto index = [=] (size_t x, size_t y) { return x + y * width; };
@@ -26,11 +27,11 @@ std::vector<Clusters::conflict> Clusters::merge_nonconflicts(byte *data)
 		{ size_t(-1), +1 }, // overflow is fine
 		{ +1, +1 },
 	};
-	auto same_color = [] (byte *d, size_t a, size_t b) {
+	auto same_color = [delta_c] (byte *d, size_t a, size_t b) {
 		auto d0 = d[a * 3 + 0] - d[b * 3 + 0];
 		auto d1 = d[a * 3 + 1] - d[b * 3 + 1];
 		auto d2 = d[a * 3 + 2] - d[b * 3 + 2];
-		return d0*d0 + d1*d1 + d2*d2 <= 8*8;
+		return d0*d0 + d1*d1 + d2*d2 <= delta_c*delta_c;
 	};
 	for (size_t y = 0; y < height; ++y) {
 		for (size_t x = 0; x < width; ++x) {
