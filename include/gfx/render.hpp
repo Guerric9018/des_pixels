@@ -15,7 +15,7 @@ class Render
 		VertexArray const *va;
 		VertexBuffer const *vb;
 		size_t vb_cnt;
-		char *data;
+		const char *data;
 		size_t attrib_size;
 		size_t inst_cnt;
 		vec4<float> color;
@@ -42,7 +42,7 @@ public:
 	template <buffer_description D>
 	void submit(
 		draw_context<D> ctx,
-		std::span<typename D::attrib_type> data,
+		std::span<const typename D::attrib_type> data,
 		vec4<float> color,
 		GLenum primitive
 	)
@@ -52,7 +52,7 @@ public:
 			&ctx.va,
 			&ctx.vb,
 			ctx.vb_cnt,
-			reinterpret_cast<char*>(data.data()),
+			reinterpret_cast<const char*>(data.data()),
 			sizeof(typename D::attrib_type),
 			data.size(),
 			color,

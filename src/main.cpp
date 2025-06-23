@@ -16,6 +16,7 @@
 #include <deque>
 #include <cstdint>
 #include <thread>
+#include <span>
 #include <string>
 #include "data.hpp"
 #include "gfx.hpp"
@@ -24,6 +25,46 @@
 #include "gfx/render.hpp"
 
 using MaskT = uint64_t; 
+
+static int clicks = 0;
+
+std::string readFile(std::string_view path)
+{
+	std::ifstream file(path.data());
+	file.seekg(0, std::ios_base::end);
+	const auto len = file.tellg();
+	std::string result(len + 1l, '\0');
+	file.seekg(0, std::ios_base::beg);
+	file.read(result.data(), len);
+	return result;
+}
+
+struct attr0descr {
+	using element_type = float;
+	using attrib_type  = vec2<float>;
+	using vertex_type  = vec2<float>;
+	enum : GLint { element_count = 2 };
+	enum : GLuint { location = 0 };
+	enum : GLuint { instanced = 0 };
+};
+
+struct attr1descr {
+	using element_type = float;
+	using attrib_type  = vec2<float>;
+	using vertex_type  = vec2<float>;
+	enum : GLint { element_count = 2 };
+	enum : GLuint { location = 1 };
+	enum : GLuint { instanced = 1 };
+};
+
+struct attr2descr {
+	using element_type = float;
+	using attrib_type  = vec4<float>;
+	using vertex_type  = vec4<float>;
+	enum : GLint { element_count = 4 };
+	enum : GLuint { location = 2 };
+	enum : GLuint { instanced = 1 };
+};
 
 vec2<float> lerp(vec2<float> a, vec2<float> b, float t)
 {
@@ -251,6 +292,16 @@ Mesh buildShapes(Clusters& clusters, size_t width, size_t height, Render &rdr, R
 		compress.try_emplace(node_map.find(i), compress.size());
 	}
 
+	size_t dupes = 0;
+	for (const auto [old1, new1] : compress) {
+		for (const auto [old2, new2] : compress) {
+			if (old1 != old2 && dist2(nodes[old1], nodes[old2]) < epsilon) {
+				++dupes;
+			}
+		}
+	}
+	assert(dupes == 2);
+
 	lines.clear();
 	std::vector<vec2<float>> compressed_nodes(compress.size());
 	std::vector<MaskT> compressed_node_cluster_ids(compress.size());
@@ -292,33 +343,92 @@ Mesh buildShapes(Clusters& clusters, size_t width, size_t height, Render &rdr, R
 		}
 	}
 
-	while (rdr.clear()) {
+	while (rdr.clear() && !clicks) {
 		rdr.submit(line_info, lines, vec4<float>(1.0f, 1.0f, 1.0f, 1.0f), GL_LINES);
 		rdr.draw();
-		break;
 	}
+	clicks = 0;
 
 	return Mesh{ std::move(compressed_nodes), std::move(compressed_edges), std::move(compressed_node_cluster_ids) };
 }
 
 using Polygon = std::vector<size_t>;
 struct Boundary {
-	Polygon outer;
-	std::set<id_t> adj; // clusters that have a boundary in common
+	std::map<size_t, Polygon> polys;
+	std::set<id_t> adj;
 };
 using BoundaryGraph = std::map<id_t, Boundary>;
 
-BoundaryGraph clusterBoundaries(Mesh const &mesh)
+template <typename T>
+std::ostream &operator<<(std::ostream &os, std::set<T> const &s)
 {
+	os << '{';
+	for (const auto &e : s) {
+		os << e << ", ";
+	}
+	os << '}';
+	return os;
+}
+
+struct SearchEdge {
+	size_t s;
+	size_t t;
+
+	friend std::ostream &operator<<(std::ostream &os, SearchEdge const &e)
+	{
+		return os << "(" << e.s << ", " << e.t << ")";
+	}
+};
+
+auto operator<=>(SearchEdge const &l, SearchEdge const &r)
+{
+	if (l.s == size_t(-1) || r.s == size_t(-1))
+		return l.t <=> r.t;
+	if (l.t == size_t(-1) || r.t == size_t(-1))
+		return l.s <=> r.s;
+	return (l.s == r.s) ? (l.t <=> r.t) : (l.s <=> r.s);
+}
+
+auto operator==(SearchEdge const &l, SearchEdge const &r)
+{
+	if (l.s == size_t(-1) || r.s == size_t(-1))
+		return l.t == r.t;
+	if (l.t == size_t(-1) || r.t == size_t(-1))
+		return l.s == r.s;
+	return (l.s == r.s) ? (l.t == r.t) : (l.s == r.s);
+}
+
+BoundaryGraph clusterBoundaries(Mesh const &mesh, Render &rdr)
+{
+	Shader shader(
+		ShaderStage(readFile("shdr/line.v.glsl"), ShaderStage::Vertex),
+		ShaderStage(readFile("shdr/line.f.glsl"), ShaderStage::Fragment)
+	);
+	shader.bind();
+	shader.set("scale", 1.2f / 24.0f);
+	VertexArray va;
+	{
+		GLuint indices[] = { 0, 1 };
+		IndexBuffer(indices).leak();
+	}
+	VertexBuffer vb(std::span{static_cast<vec4<float>*>(nullptr), 256}, attr2descr{});
+	Render::draw_context<attr2descr> ctx{ shader, va, vb, 256 };
+	vec4<float> color{ 1.0f, 0.0f, 1.0f, 1.0f };
+	std::vector<vec4<float>> lines;
+	rdr.removeAll();
+
 	assert(mesh.vert.size() <= mesh.edge.size());
+	std::map<id_t, std::map<size_t, std::vector<SearchEdge>>> partial;
 	BoundaryGraph bnd;
 	using stack = std::deque<size_t>;
 	stack dfs;
+	// start with anything really
 	dfs.push_back(0);
 	std::set<size_t> unseen;
 	for (size_t seed = 0; seed < mesh.vert.size(); ++seed) {
 		unseen.emplace(seed);
 	}
+	// non connected graph version of dfs
 	while (!unseen.empty()) {
 		const auto seed = *unseen.begin();
 		dfs.push_back(seed);
@@ -327,26 +437,65 @@ BoundaryGraph clusterBoundaries(Mesh const &mesh)
 			dfs.pop_back();
 			if (!unseen.contains(s))
 				continue;
-			unseen.erase(s);
 			for (const auto [t, c1, c2] : mesh.edge[s]) {
+				if (!unseen.contains(t))
+					continue;
 				dfs.push_back(t);
-				auto &p1 = bnd[c1];
-				auto &p2 = bnd[c2];
+				partial[c1][seed].emplace_back(s, t);
+				partial[c2][seed].emplace_back(s, t);
+				bnd[c1].adj.emplace(c2);
+				bnd[c2].adj.emplace(c1);
 
-				if (p1.outer.empty()) {
-					p1.outer.push_back(s);
+				const auto &pos = mesh.vert;
+				lines.emplace_back(pos[s].x, pos[s].y, pos[t].x, pos[t].y);
+				while (rdr.clear()) {
+					rdr.submit(ctx, lines, color, GL_LINES);
+					rdr.draw();
+					break;
 				}
-				p1.outer.push_back(t);
-				p1.adj.emplace(c2);
+			}
+			unseen.erase(s);
+		}
+	}
 
-				if (p2.outer.empty()) {
-					p2.outer.push_back(s);
+	// convert jumbled set of edges into end-to-end edges, represented as array of consecutive vertices
+	for (auto &[cluster, boundary] : bnd) {
+		for (auto &[seed, source] : partial.find(cluster)->second) {
+			auto &dest = boundary.polys[seed];
+			auto any = source.begin();
+			lines.clear();
+			dest.emplace_back(any->s);
+			dest.emplace_back(any->t);
+			const auto &pos = mesh.vert;
+			lines.emplace_back(pos[any->s].x, pos[any->s].y, pos[any->t].x, pos[any->t].y);
+			source.erase(source.begin());
+			while (!source.empty()) {
+				auto next = std::find(source.begin(), source.end(), SearchEdge{dest.back(), size_t(-1)});
+				size_t insert;
+				if (next == source.end()) {
+					next = std::find(source.begin(), source.end(), SearchEdge{size_t(-1), dest.back()});
+					assert(next != source.end());
+					assert(next->t == dest.back());
+					insert = next->s;
+				} else {
+					assert(next->s == dest.back());
+					insert = next->t;
 				}
-				p2.outer.push_back(t);
-				p2.adj.emplace(c1);
+				source.erase(next);
+				dest.emplace_back(insert);
+				lines.emplace_back(pos[next->s].x, pos[next->s].y, pos[next->t].x, pos[next->t].y);
+
+				while (!clicks && rdr.clear()) {
+					rdr.submit(ctx, std::span{lines.begin(), lines.size()-1}, color, GL_LINES);
+					rdr.submit(ctx, std::span{lines.end()-1, 1}, vec4<float>(0.0f, 1.0f, 1.0f, 1.0f), GL_LINES);
+					rdr.draw();
+					break;
+				}
+				clicks = 0;
 			}
 		}
 	}
+
 	return bnd;
 }
 
@@ -690,7 +839,7 @@ std::vector<vec2<float>> applyForces(Mesh& mesh, Render &rdr, Render::draw_conte
 
 	std::cout << "Done applying forces (threshold reached)" << std::endl;
 
-	draw_current_state(vert, true);
+	draw_current_state(vert, false);
 	return vert;
 }
 
@@ -705,17 +854,20 @@ std::string serializeSVG(Color color, Boundary const &bnd, std::vector<vec2<floa
 {
 	std::stringstream result;
 	result << "\t<g fill=\"#" << color << "\">\n";
-	result << "\t\t<polygon points=\"";
-	bool first = true;
-	for (const auto i : bnd.outer) {
-		if (first) {
-			first = false;
-		} else {
-			result << ' ';
+	for (const auto &[_, outer] : bnd.polys) {
+		result << "\t\t<polygon points=\"";
+		bool first = true;
+		for (const auto i : outer) {
+			if (first) {
+				first = false;
+			} else {
+				result << ' ';
+			}
+			auto out = pos[i] * 25.0f;
+			result << out.x << ',' << out.y;
 		}
-		result << pos[i].x << ',' << pos[i].y;
+		result << "\"/>\n";
 	}
-	result << "\"/>\n";
 	result << "\t</g>\n";
 	return result.str();
 }
@@ -761,6 +913,11 @@ int main(int argc, char **argv)
 		return 1;
 	}
 	Window window("Depixel", 720, 720);
+	glfwSetMouseButtonCallback(window.handle, [] (GLFWwindow *, int button, int action, int) {
+		if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
+			++clicks;
+		}
+	});
 	Render rdr(std::move(window));
 
 	Shader shader(
@@ -784,33 +941,6 @@ int main(int argc, char **argv)
 			})", ShaderStage::Fragment)
 	);
 	shader.bind();
-
-	struct attr0descr {
-		using element_type = float;
-		using attrib_type  = vec2<float>;
-		using vertex_type  = vec2<float>;
-		enum : GLint { element_count = 2 };
-		enum : GLuint { location = 0 };
-		enum : GLuint { instanced = 0 };
-	};
-
-	struct attr1descr {
-		using element_type = float;
-		using attrib_type  = vec2<float>;
-		using vertex_type  = vec2<float>;
-		enum : GLint { element_count = 2 };
-		enum : GLuint { location = 1 };
-		enum : GLuint { instanced = 1 };
-	};
-
-	struct attr2descr {
-		using element_type = float;
-		using attrib_type  = vec4<float>;
-		using vertex_type  = vec4<float>;
-		enum : GLint { element_count = 4 };
-		enum : GLuint { location = 2 };
-		enum : GLuint { instanced = 1 };
-	};
 
 	VertexArray va;
 	{
@@ -861,24 +991,8 @@ int main(int argc, char **argv)
 	shader.set("scale", 1.2f / width);
 
 	Shader line_shader(
-		ShaderStage(R"(#version 330 core
-			layout(location = 2) in vec4 inst_endpoints;
-			uniform float scale;
-			void main() {
-				vec2 pos = inst_endpoints.xy;
-				if ((gl_VertexID & 1) == 1) {
-					pos = inst_endpoints.zw;
-				}
-				pos = pos * scale;
-				pos.y = 1.0 - pos.y;
-				gl_Position = vec4(pos - vec2(0.5, 0.5), 0.0, 1.0);
-			})", ShaderStage::Vertex),
-		ShaderStage(R"(#version 330 core
-			out vec4 frag_color;
-			uniform vec4 color;
-			void main() {
-				frag_color = color;
-			})", ShaderStage::Fragment)
+		ShaderStage(readFile("shdr/line.v.glsl"), ShaderStage::Vertex),
+		ShaderStage(readFile("shdr/line.f.glsl"), ShaderStage::Fragment)
 	);
 	line_shader.bind();
 	line_shader.set("scale", 1.2f / width);
@@ -898,11 +1012,33 @@ int main(int argc, char **argv)
 	rdr.keep();
 
 	auto mesh = buildShapes(clusters, width, height, rdr, line_info);
-	auto polys = clusterBoundaries(mesh);
+	auto polys = clusterBoundaries(mesh, rdr);
+
 	auto smoothed = applyForces(mesh, rdr, line_info);
+
+	std::vector<std::vector<vec4<float>>> lines;
+	for (const auto &[c, bnd] : polys) {
+		for (const auto &[_, poly] : bnd.polys) {
+			lines.emplace_back();
+			auto s = 0;
+			for (size_t t = 1; t < poly.size(); s = t, ++t) {
+				const auto start = smoothed[poly[s]];
+				const auto   end = smoothed[poly[t]];
+				lines.back().emplace_back(start.x, start.y, end.x, end.y);
+			}
+		}
+	}
+
+	while (clicks < 5 && rdr.clear()) {
+		rdr.submit(line_info, lines[clicks % lines.size()], vec4<float>(1.0f, 0.0f, 0.0f, 1.0f), GL_LINES);
+		rdr.draw();
+	}
+	clicks = 0;
+
 	auto serialized = serializeSVG(clusters, polys, smoothed);
 	writeToFile(argv[2], serialized);
 
 	stbi_image_free(pixels);
+	rdr.removeAll();
 }
 
