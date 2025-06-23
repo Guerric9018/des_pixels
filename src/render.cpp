@@ -20,7 +20,7 @@ void Render::do_draw(command const &cmd)
 	cmd.shader->set("color", cmd.color);
 	cmd.va->bind();
 	size_t drawn = 0;
-	char *at = cmd.data;
+	const char *at = cmd.data;
 	GLsizei attrib_count = (cmd.primitive == GL_QUADS) ? 6: 2;
 	GLenum primitive = (cmd.primitive == GL_QUADS) ? GL_TRIANGLES: GL_LINES;
 	size_t stride = cmd.vb_cnt * cmd.attrib_size;
