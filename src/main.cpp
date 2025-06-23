@@ -723,7 +723,7 @@ std::pair<std::unordered_map<id_t, float>, std::unordered_map<id_t, vec2<float>>
 template <buffer_description D>
 std::vector<vec2<float>> applyForces(Mesh& mesh, Render &rdr, Render::draw_context<D> const &line_info, float k0, float kN)
 {
-	std::vector<vec2<float>>& vert         = mesh.vert;
+	std::vector<vec2<float>> vert         = mesh.vert;
 	std::vector<std::vector<size_t>> edge(mesh.edge.size());
 	for (size_t s = 0; s < mesh.edge.size(); ++s) {
 		for (const auto [t, c1, c2] : mesh.edge[s]) {
@@ -1049,8 +1049,9 @@ int main(int argc, char **argv)
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 	ImGui::SetNextWindowBgAlpha(0.0f);
 
+	std::vector<vec4<float>> lines;
 
-while (!glfwWindowShouldClose(rdr.getHandle()))
+	while (!glfwWindowShouldClose(rdr.getHandle()))
 	{
 		rdr.clear();
 		glfwPollEvents();
@@ -1096,6 +1097,19 @@ while (!glfwWindowShouldClose(rdr.getHandle()))
 				mesh = buildShapes(clusters, width, height, rdr, line_info);
 				bnd = clusterBoundaries(mesh, rdr);
 				built_mesh = true;
+				lines.clear();
+				for (size_t u = 0; u < mesh.edge.size(); ++u) {
+					for (auto [v, _1, _2] : mesh.edge[u]) {
+						if (v < mesh.vert.size()) {
+							lines.push_back(vec4<float>(mesh.vert[u].x, mesh.vert[u].y,
+														mesh.vert[v].x, mesh.vert[v].y));
+						}
+					}
+				}
+				rdr.removeAll();
+				rdr.clear();
+				rdr.submit(line_info, lines, vec4<float>(1.0f, 0.7f, 0.8f, 1.0f), GL_LINES);
+				rdr.keep();
 			}
 		if (ImGui::Button("Apply Forces"))
 		{
@@ -1104,6 +1118,20 @@ while (!glfwWindowShouldClose(rdr.getHandle()))
 				std::cout << "applied forces\n";
 				auto serialized = serializeSVG(clusters, bnd, smoothed);
 				writeToFile(argv[2], serialized);
+
+				lines.clear();
+				for (size_t u = 0; u < mesh.edge.size(); ++u) {
+					for (auto [v, _1, _2] : mesh.edge[u]) {
+						if (v < mesh.vert.size()) {
+							lines.push_back(vec4<float>(smoothed[u].x, smoothed[u].y,
+														smoothed[v].x, smoothed[v].y));
+						}
+					}
+				}
+				rdr.removeAll();
+				rdr.clear();
+				rdr.submit(line_info, lines, vec4<float>(1.0f, 0.7f, 0.8f, 1.0f), GL_LINES);
+				rdr.keep();
 			} else {
 				std::cout << "You must build shapes before applying forces.\n";
 			}
@@ -1121,12 +1149,12 @@ while (!glfwWindowShouldClose(rdr.getHandle()))
 		}
 				
 		rdr.draw();
-	    glfwSwapBuffers(rdr.getHandle());
+		glfwSwapBuffers(rdr.getHandle());
 	}
 
 	ImGui_ImplOpenGL3_Shutdown();
-    ImGui_ImplGlfw_Shutdown();
-    ImGui::DestroyContext();
+	ImGui_ImplGlfw_Shutdown();
+	ImGui::DestroyContext();
 
 	stbi_image_free(pixels);
 
