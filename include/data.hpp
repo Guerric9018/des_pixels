@@ -124,7 +124,7 @@ private:
 	union_find vertex2cluster;
 
 public:
-	Clusters(size_t width, size_t height, byte *data);
+	Clusters(size_t width, size_t height, byte *data, int delta_c);
 	id_t repr(size_t id);
 	std::map<id_t, cluster> const &get() const;
 	size_t components() const ;
@@ -133,7 +133,7 @@ public:
 
 private:
 	using conflict = std::pair<size_t, size_t>;
-	std::vector<conflict> merge_nonconflicts(byte *data);
+	std::vector<conflict> merge_nonconflicts(byte *data, int delta_c);
 	void reverse_mapping();
 	void conflict_resolution(std::vector<conflict> const& diagonals);
 };
