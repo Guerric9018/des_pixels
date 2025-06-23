@@ -356,8 +356,8 @@ Mesh buildShapes(Clusters& clusters, size_t width, size_t height, Render &rdr, R
 	return Mesh{ std::move(compressed_nodes), std::move(compressed_edges), std::move(compressed_node_cluster_ids) };
 }
 
-using Polygon = std::vector<size_t>;
 struct Boundary {
+	using Polygon = std::vector<size_t>;
 	std::map<size_t, Polygon> polys;
 	std::set<id_t> adj;
 };
