@@ -13,6 +13,11 @@ CFLAGS   = -ggdb3 -I include -I imgui
 
 all:: $(BIN)
 
+$(OBJ): | bin/
+
+bin/:
+	mkdir -p bin
+
 clean::
 	rm -f $(BIN) $(OBJ)
 
