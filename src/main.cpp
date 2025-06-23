@@ -296,16 +296,6 @@ Mesh buildShapes(Clusters& clusters, size_t width, size_t height, Render &rdr, R
 		compress.try_emplace(node_map.find(i), compress.size());
 	}
 
-	size_t dupes = 0;
-	for (const auto [old1, new1] : compress) {
-		for (const auto [old2, new2] : compress) {
-			if (old1 != old2 && dist2(nodes[old1], nodes[old2]) < epsilon) {
-				++dupes;
-			}
-		}
-	}
-	assert(dupes == 2);
-
 	lines.clear();
 	std::vector<vec2<float>> compressed_nodes(compress.size());
 	std::vector<MaskT> compressed_node_cluster_ids(compress.size());
